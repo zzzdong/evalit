@@ -1,0 +1,30 @@
+[package]
+name = "evalit"
+version = "0.1.0-alpha.1"
+edition = "2024"
+authors = ["zzzdong <kuwater@163.com>"]
+license = "MIT"
+readme = "README.md"
+repository = "https://github.com/zzzdong/evalit"
+homepage = "https://github.com/zzzdong/evalit"
+documentation = "https://docs.rs/evalit/"
+description = """
+a toy interpreter
+"""
+categories = ["compilers", "parser-implementations"]
+keywords = ["interpreter", "scripting"]
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+futures = "0.3"
+log = "0.4"
+pest = "2"
+pest_derive = "2"
+petgraph = "0.8"
+tokio = { version = "1", features = ["full"] }
+
+[dev-dependencies]
+env_logger = "0.11"
+reqwest = { version = "0.12", features = ["rustls-tls"] }
+tokio = { version = "1", features = ["full"] }

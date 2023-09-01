@@ -1,0 +1,467 @@
+program = { SOI ~ (statement)* ~ EOI }
+
+/// Top level
+top_level = { statement | expression }
+
+/// Statement
+statement = {
+    empty_statement
+  | item_statement
+  | let_statement
+  | if_statement
+  | switch_statement
+  | loop_statement
+  | while_statement
+  | for_statement
+  | return_statement
+  | continue_statement
+  | break_statement
+  | expression_statement
+}
+
+/// Empty Statment
+empty_statement = { ";" }
+
+/// Item Statment
+item_statement = { fn_item | struct_item | enum_item }
+
+/// Struct Item
+struct_item = { "struct" ~ identifier ~ "{" ~ (struct_field_list ~ ","?)? ~ "}" }
+
+struct_field_list = { struct_field ~ ("," ~ struct_field)* }
+struct_field      = { identifier ~ ":" ~ type_expression }
+
+/// Function Item
+fn_item = { "fn" ~ identifier ~ "(" ~ fn_params ~ ")" ~ fn_return_type ~ block }
+
+fn_params = { fn_param_list? }
+
+fn_param_list = { fn_param ~ ("," ~ fn_param)* }
+
+fn_param = { identifier ~ (":" ~ type_expression)? }
+
+fn_return_type = { ("->" ~ type_expression)? }
+
+/// Enum Item
+enum_item = { "enum" ~ identifier ~ "{" ~ (enum_item_list ~ ","?)? ~ "}" }
+
+enum_item_list = { enum_field ~ ("," ~ enum_field)* }
+
+enum_field = { simple_enum_field | tuple_enum_field }
+
+simple_enum_field = { identifier ~ !"(" }
+
+tuple_enum_field = { identifier ~ "(" ~ type_expression ~ ("," ~ type_expression)* ~ ")" }
+
+/// Expression Statment
+expression_statement = { expression ~ ";" }
+
+/// Let Statment
+let_statement = { "let" ~ identifier ~ type_annotation ~ assignment ~ ";" }
+
+type_annotation = { (":" ~ type_expression)? }
+
+assignment = { ("=" ~ expression)? }
+
+/// If Statment
+if_statement = { "if" ~ expression ~ block ~ ("else" ~ (if_statement | block))? }
+
+/// Switch Statment
+switch_statement = { "switch" ~ expression ~ "{" ~ case_statement_list ~ "}" }
+
+/// Case Statment
+case_statement = { "case" ~ pattern ~ ":" ~ block }
+
+/// Case Statment List
+case_statement_list = { case_statement* }
+
+/// Loop Statment
+loop_statement = { "loop" ~ block }
+
+/// While Statement
+while_statement = { "while" ~ expression ~ block }
+
+/// For Statment
+for_statement = { "for" ~ pattern ~ "in" ~ expression ~ block }
+
+/// Return Statment
+return_statement = { "return" ~ expression? ~ ";" }
+
+/// Continue Statment
+continue_statement = { "continue" ~ ";" }
+
+/// Break Statment
+break_statement = { "break" ~ ";" }
+
+/// Block
+block = { "{" ~ (statement | expression)* ~ "}" }
+
+/// Pattern
+pattern = { wildcard_pattern | identifier | literal | tuple_pattern }
+
+/// Wildcard Pattern
+wildcard_pattern = { "_" }
+
+/// Tuple Pattern
+tuple_pattern = { "(" ~ (pattern ~ ",")* ~ pattern ~ ")" }
+
+/// Expression
+expression = { prefix_operator* ~ primary ~ postfix* ~ (infix_operator ~ prefix_operator* ~ primary ~ postfix*)* }
+
+type_expression = { type_bool | type_byte | type_int | type_float | type_char | type_string | type_array | type_tuple | type_generic | type_impl | type_user_defined }
+
+type_bool         = { "bool" }
+type_byte         = { "byte" }
+type_int          = { "int" }
+type_float        = { "float" }
+type_char         = { "char" }
+type_string       = { "string" }
+type_user_defined = { identifier }
+type_tuple        = { "(" ~ (((type_expression ~ ",")+ ~ type_expression) | (type_expression ~ ",")) ~ ")" }
+type_array        = { "[" ~ "]" ~ type_expression }
+type_impl         = { "impl" ~ type_expression }
+type_generic      = { identifier ~ "<" ~ type_expression ~ ("," ~ type_expression)* ~ ">" }
+
+/// Primary
+primary = _{ atom | grouped_expression }
+
+/// Grouped Expression
+grouped_expression = { "(" ~ expression ~ ")" }
+
+/// closure
+closure = { "|" ~ call_arg_list ~ "|" ~ block }
+
+/// Atom
+atom = {
+    literal
+  | simple_path
+  | identifier
+  | tuple
+  | array
+  | map
+  | closure
+  | env
+}
+
+/// Simple Path
+simple_path = { ("::")? ~ path_seg ~ ("::" ~ path_seg)+ }
+
+path_seg = { identifier | "super" | "self" | "crate" }
+
+/// Tuple
+tuple = { "(" ~ (((expression ~ ",")+ ~ expression) | (expression ~ ",")) ~ ")" }
+
+/// Array
+array = { "[" ~ (expression ~ ("," ~ expression)*)? ~ "]" }
+
+/// map item
+map_item = { expression ~ ":" ~ expression }
+
+/// map
+map = { "{" ~ (map_item ~ ("," ~ map_item)*)? ~ "}" }
+
+/// Literal
+literal = { null | boolean | float | integer | string | character }
+
+/// Null
+null = { "null" }
+
+/// Boolean
+boolean = @{ "true" | "false" }
+
+/// Integer
+integer = @{ (ASCII_NONZERO_DIGIT ~ ASCII_DIGIT+ | ASCII_DIGIT) }
+
+/// float
+float = @{ integer ~ "." ~ integer }
+
+/// environment variable
+env = ${ "${" ~ name ~ "}" | "$" ~ name }
+
+/// Opening brace for a rule.
+opening_brace = { "{" }
+
+/// Closing brace for a rule.
+closing_brace = { "}" }
+
+/// Opening parenthesis for a branch, PUSH, etc.
+opening_paren = { "(" }
+
+/// Closing parenthesis for a branch, PUSH, etc.
+closing_paren = { ")" }
+
+/// Opening bracket for PEEK (slice inside).
+opening_brack = { "[" }
+
+/// Closing bracket for PEEK (slice inside).
+closing_brack = { "]" }
+
+/// Possible predicates for a rule.
+prefix_operator = _{ not_operator | negative_operator }
+
+/// Branches or sequences.
+infix_operator = _{
+    add_assign_operator
+  | sub_assign_operator
+  | mul_assign_operator
+  | div_assign_operator
+  | mod_assign_operator
+  | not_equal_operator
+  | less_equal_operator
+  | greater_equal_operator
+  | as_operator
+  | add_operator
+  | sub_operator
+  | mul_operator
+  | div_operator
+  | mod_operator
+  | pow_operator
+  | range_operator
+  | and_operator
+  | or_operator
+  | equal_operator
+  | less_operator
+  | greater_operator
+  | assign_operator
+}
+
+/// Possible modifiers for a rule.
+postfix = _{
+    try_operator
+  | await_operator
+  | member_operator
+  | call_operator
+  | slice_operator
+  | index_operator
+}
+
+/// Await Expression
+await_operator = @{ ".await" }
+
+/// Member Expression
+member_operator = { "." ~ identifier }
+
+/// Call Expression
+call_operator = { "(" ~ call_arg_list ~ ")" }
+
+call_arg_list = { (call_arg ~ ("," ~ call_arg)*)? }
+
+call_arg = { expression }
+
+/// Slice Expression
+slice_operator = { "[" ~ slice_begin? ~ range_operator ~ slice_end? ~ "]" }
+
+slice_begin = { expression }
+
+slice_end = { expression }
+
+/// Index Expression
+index_operator = { "[" ~ index_arg ~ "]" }
+
+index_arg = { expression }
+
+/// Path Expression
+path_operator = { "::" ~ identifier }
+
+/// A not operator.
+not_operator = { "!" }
+
+/// A negative operator.
+negative_operator = { "-" }
+
+/// A as cast
+as_operator = { "as" }
+
+/// A dot operator.
+dot_operator = { "." }
+
+/// A add operator.
+add_operator = { "+" }
+
+/// A sub operator.
+sub_operator = { "-" }
+
+/// A mul operator.
+mul_operator = { "*" }
+
+/// A div operator.
+div_operator = { "/" }
+
+/// A mod operator.
+mod_operator = { "%" }
+
+/// A pow operator.
+pow_operator = { "^" }
+
+/// A try operator.
+try_operator = { "?" }
+
+/// A range operator.
+range_operator = { "..=" | ".." }
+
+/// A and operator.
+and_operator = { "&&" }
+
+/// A or operator.
+or_operator = { "||" }
+
+/// An equal operator.
+equal_operator = { "==" }
+
+/// A not equal operator.
+not_equal_operator = { "!=" }
+
+/// A less operator.
+less_operator = { "<" }
+
+/// A less equal operator.
+less_equal_operator = { "<=" }
+
+/// A greater operator.
+greater_operator = { ">" }
+
+/// A greater equal operator.
+greater_equal_operator = { ">=" }
+
+/// A assign operator.
+assign_operator = { "=" }
+
+/// A add assign operator.
+add_assign_operator = { "+=" }
+
+/// A sub assign operator.
+sub_assign_operator = { "-=" }
+
+/// A mul assign operator.
+mul_assign_operator = { "*=" }
+
+/// A div assign operator.
+div_assign_operator = { "/=" }
+
+/// A mod assign operator.
+mod_assign_operator = { "%=" }
+
+/// A comma terminal.
+comma = { "," }
+
+/// An identifier.
+identifier = { !keyword ~ name }
+
+///
+name = @{ !"PUSH" ~ ("_" | alpha) ~ ("_" | alpha_num)* }
+
+/// An alpha character.
+alpha = _{ 'a'..'z' | 'A'..'Z' }
+
+/// An alphanumeric character.
+alpha_num = _{ alpha | '0'..'9' }
+
+/// A string.
+string = ${ quote ~ inner_str ~ quote }
+
+/// A single quoted character
+character = ${ single_quote ~ inner_chr ~ single_quote }
+
+/// A quoted string.
+inner_str = @{ (!("\"" | "\\") ~ ANY)* ~ (escape ~ inner_str)? }
+
+/// An escaped or any character.
+inner_chr = @{ escape | ANY }
+
+/// An escape sequence.
+escape = @{ "\\" ~ ("\"" | "\\" | "r" | "n" | "t" | "0" | "'" | code | unicode) }
+
+/// A hexadecimal code.
+code = @{ "x" ~ hex_digit{2} }
+
+/// A unicode code.
+unicode = @{ "u" ~ opening_brace ~ hex_digit{2, 6} ~ closing_brace }
+
+/// A hexadecimal digit.
+hex_digit = @{ '0'..'9' | 'a'..'f' | 'A'..'F' }
+
+/// A double quote.
+quote = { "\"" }
+
+/// A single quote.
+single_quote = { "'" }
+
+/// A newline character.
+newline = _{ "\n" | "\r\n" }
+
+/// A whitespace character.
+WHITESPACE = _{ " " | "\t" | newline }
+
+/// A single line comment.
+line_comment = _{ ("//" ~ !("/" | "!") ~ (!newline ~ ANY)*) }
+
+/// A multi-line comment.
+block_comment = _{ "/*" ~ (block_comment | !"*/" ~ ANY)* ~ "*/" }
+
+/// A grammar comment.
+COMMENT = _{ block_comment | line_comment }
+
+// ref: https://doc.rust-lang.org/reference/comments.html
+/// A space character.
+space = _{ " " | "\t" }
+
+/// A top-level comment.
+grammar_doc = ${ "//!" ~ space? ~ inner_doc }
+
+/// A rule comment.
+line_doc = ${ "///" ~ space? ~ inner_doc }
+
+/// A comment content.
+inner_doc = @{ (!newline ~ ANY)* }
+
+/// Keywords
+keywords = _{
+    "null"
+  | "bool"
+  | "byte"
+  | "char"
+  | "int"
+  | "float"
+  | "string"
+  | "true"
+  | "false"
+  | "enum"
+  | "struct"
+  | "fn"
+  | "let"
+  | "const"
+  | "static"
+  | "mut"
+  | "use"
+  | "type"
+  | "impl"
+  | "as"
+  | "pub"
+  | "priv"
+  | "break"
+  | "continue"
+  | "try"
+  | "catch"
+  | "finally"
+  | "return"
+  | "if"
+  | "else"
+  | "for"
+  | "in"
+  | "while"
+  | "loop"
+  | "async"
+  | "await"
+  | "dyn"
+  | "gen"
+  | "yield"
+  | "self"
+  | "Self"
+  | "super"
+  | "unsafe"
+  | "crate"
+  | "trait"
+  | "mod"
+}
+
+keyword = @{ keywords ~ !("_" | alpha_num) }
