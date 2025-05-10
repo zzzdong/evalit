@@ -100,20 +100,20 @@ impl Codegen {
 
                 match inst.clone() {
                     Instruction::Call { func, args, result } => {
-                        self.gen_call(index, func, &args, result);
+                        self.gen_call(func, &args, result);
                     }
                     Instruction::CallEx {
                         callable,
                         args,
                         result,
                     } => {
-                        self.gen_call_ex(index, callable, &args, result);
+                        self.gen_call_ex(callable, &args, result);
                     }
                     Instruction::CallNative { func, args, result } => {
-                        self.gen_call_native(index, func, &args, result);
+                        self.gen_call_native(func, &args, result);
                     }
                     Instruction::LoadArg { dst, index } => {
-                        let dst = self.gen_operand(index, dst);
+                        let dst = self.gen_operand(dst);
                         let stack = self.reg_alloc.load_arg(index);
                         self.codes.push(Bytecode::double(
                             Opcode::Mov,
@@ -122,7 +122,7 @@ impl Codegen {
                         ));
                     }
                     Instruction::LoadConst { dst, const_id } => {
-                        let dst = self.gen_operand(index, dst);
+                        let dst = self.gen_operand(dst);
 
                         self.codes.push(Bytecode::double(
                             Opcode::LoadConst,
@@ -131,25 +131,25 @@ impl Codegen {
                         ));
                     }
                     Instruction::LoadEnv { dst, name } => {
-                        let dst = self.gen_operand(index, dst);
+                        let dst = self.gen_operand(dst);
                         self.codes
                             .push(Bytecode::double(Opcode::LoadEnv, dst, name.to_operand()));
                     }
                     Instruction::Move { dst, src } => {
-                        let src = self.gen_operand(index, src);
-                        let dst = self.gen_operand(index, dst);
+                        let src = self.gen_operand(src);
+                        let dst = self.gen_operand(dst);
                         self.codes.push(Bytecode::double(Opcode::Mov, dst, src));
                     }
                     Instruction::UnaryOp { op, dst, src } => {
-                        let src = self.gen_operand(index, src);
-                        let dst = self.gen_operand(index, dst);
+                        let src = self.gen_operand(src);
+                        let dst = self.gen_operand(dst);
 
                         self.codes.push(Bytecode::double(op, dst, src));
                     }
                     Instruction::BinaryOp { op, dst, lhs, rhs } => {
-                        let src1 = self.gen_operand(index, lhs);
-                        let src2 = self.gen_operand(index, rhs);
-                        let dst = self.gen_operand(index, dst);
+                        let src1 = self.gen_operand(lhs);
+                        let src2 = self.gen_operand(rhs);
+                        let dst = self.gen_operand(dst);
                         self.codes.push(Bytecode::triple(op, dst, src1, src2));
                     }
                     Instruction::MakeRange {
@@ -159,20 +159,20 @@ impl Codegen {
                         result,
                     } => match (begin, end) {
                         (Some(begin), Some(end)) => {
-                            let src1 = self.gen_operand(index, begin);
-                            let src2 = self.gen_operand(index, end);
-                            let dst = self.gen_operand(index, result);
+                            let src1 = self.gen_operand(begin);
+                            let src2 = self.gen_operand(end);
+                            let dst = self.gen_operand(result);
                             self.codes.push(Bytecode::triple(op, dst, src1, src2));
                         }
                         (Some(begin), None) => {
-                            let src1 = self.gen_operand(index, begin);
-                            let dst = self.gen_operand(index, result);
+                            let src1 = self.gen_operand(begin);
+                            let dst = self.gen_operand(result);
                             self.codes
                                 .push(Bytecode::double(Opcode::RangeTo, dst, src1));
                         }
                         (None, Some(end)) => {
-                            let src1 = self.gen_operand(index, end);
-                            let dst = self.gen_operand(index, result);
+                            let src1 = self.gen_operand(end);
+                            let dst = self.gen_operand(result);
                             match op {
                                 Opcode::RangeInclusive => {
                                     self.codes.push(Bytecode::double(
@@ -189,7 +189,7 @@ impl Codegen {
                             }
                         }
                         (None, None) => {
-                            let dst = self.gen_operand(index, result);
+                            let dst = self.gen_operand(result);
                             self.codes.push(Bytecode::single(Opcode::RangeFull, dst));
                         }
                     },
@@ -197,35 +197,35 @@ impl Codegen {
                         src: iter,
                         dst: result,
                     } => {
-                        let src = self.gen_operand(index, iter);
-                        let dst = self.gen_operand(index, result);
+                        let src = self.gen_operand(iter);
+                        let dst = self.gen_operand(result);
                         self.codes
                             .push(Bytecode::double(Opcode::MakeIter, dst, src));
                     }
                     Instruction::IteratorHasNext { iter, dst: result } => {
-                        let src = self.gen_operand(index, iter);
-                        let dst = self.gen_operand(index, result);
+                        let src = self.gen_operand(iter);
+                        let dst = self.gen_operand(result);
                         self.codes
                             .push(Bytecode::double(Opcode::IterHasNext, dst, src));
                     }
                     Instruction::IterateNext { iter, dst: next } => {
-                        let src = self.gen_operand(index, iter);
-                        let dst = self.gen_operand(index, next);
+                        let src = self.gen_operand(iter);
+                        let dst = self.gen_operand(next);
                         self.codes
                             .push(Bytecode::double(Opcode::IterNext, dst, src));
                     }
                     Instruction::MakeArray { dst } => {
-                        let dst = self.gen_operand(index, dst);
+                        let dst = self.gen_operand(dst);
                         self.codes.push(Bytecode::single(Opcode::MakeArray, dst));
                     }
                     Instruction::ArrayPush { array, value } => {
-                        let array = self.gen_operand(index, array);
-                        let value = self.gen_operand(index, value);
+                        let array = self.gen_operand(array);
+                        let value = self.gen_operand(value);
                         self.codes
                             .push(Bytecode::double(Opcode::ArrayPush, array, value));
                     }
                     Instruction::MakeMap { dst } => {
-                        let dst = self.gen_operand(index, dst);
+                        let dst = self.gen_operand(dst);
                         self.codes.push(Bytecode::single(Opcode::MakeMap, dst));
                     }
                     Instruction::IndexSet {
@@ -233,9 +233,9 @@ impl Codegen {
                         index: idx,
                         value,
                     } => {
-                        let object = self.gen_operand(index, object);
-                        let idx = self.gen_operand(index, idx);
-                        let value = self.gen_operand(index, value);
+                        let object = self.gen_operand(object);
+                        let idx = self.gen_operand(idx);
+                        let value = self.gen_operand(value);
                         self.codes
                             .push(Bytecode::triple(Opcode::IndexSet, object, idx, value));
                     }
@@ -244,16 +244,16 @@ impl Codegen {
                         object,
                         index: idx,
                     } => {
-                        let dst = self.gen_operand(index, dst);
-                        let object = self.gen_operand(index, object);
-                        let idx = self.gen_operand(index, idx);
+                        let dst = self.gen_operand(dst);
+                        let object = self.gen_operand(object);
+                        let idx = self.gen_operand(idx);
                         self.codes
                             .push(Bytecode::triple(Opcode::IndexGet, dst, object, idx));
                     }
                     Instruction::MakeSlice { dst, object, range } => {
-                        let dst = self.gen_operand(index, dst);
-                        let object = self.gen_operand(index, object);
-                        let range = self.gen_operand(index, range);
+                        let dst = self.gen_operand(dst);
+                        let object = self.gen_operand(object);
+                        let range = self.gen_operand(range);
                         self.codes
                             .push(Bytecode::triple(Opcode::MakeSlice, dst, object, range));
                     }
@@ -263,16 +263,16 @@ impl Codegen {
                         args,
                         result,
                     } => {
-                        self.gen_prop_call(index, object, property, &args, result);
+                        self.gen_prop_call(object, property, &args, result);
                     }
                     Instruction::PropertyGet {
                         dst,
                         object,
                         property,
                     } => {
-                        let dst = self.gen_operand(index, dst);
-                        let object = self.gen_operand(index, object);
-                        let property = self.gen_operand(index, property);
+                        let dst = self.gen_operand(dst);
+                        let object = self.gen_operand(object);
+                        let property = self.gen_operand(property);
                         self.codes
                             .push(Bytecode::triple(Opcode::PropGet, dst, object, property));
                     }
@@ -281,16 +281,16 @@ impl Codegen {
                         property,
                         value,
                     } => {
-                        let object = self.gen_operand(index, object);
-                        let property = self.gen_operand(index, property);
-                        let value = self.gen_operand(index, value);
+                        let object = self.gen_operand(object);
+                        let property = self.gen_operand(property);
+                        let value = self.gen_operand(value);
                         self.codes
                             .push(Bytecode::triple(Opcode::PropSet, object, property, value));
                     }
 
                     Instruction::Return { value } => {
                         if let Some(v) = value {
-                            let ret = self.gen_operand(index, v);
+                            let ret = self.gen_operand(v);
                             self.codes.push(Bytecode::double(
                                 Opcode::Mov,
                                 Operand::new_register(Register::RV),
@@ -315,7 +315,7 @@ impl Codegen {
                         self.codes.push(Bytecode::empty(Opcode::Ret));
                     }
                     Instruction::Br { dst } => {
-                        let dst = self.gen_operand(index, dst);
+                        let dst = self.gen_operand(dst);
 
                         let pos = self.codes.len();
                         patchs.push(Box::new(move |this: &mut Self| {
@@ -331,9 +331,9 @@ impl Codegen {
                         true_blk,
                         false_blk,
                     } => {
-                        let condition = self.gen_operand(index, condition);
-                        let true_blk = self.gen_operand(index, true_blk);
-                        let false_blk = self.gen_operand(index, false_blk);
+                        let condition = self.gen_operand(condition);
+                        let true_blk = self.gen_operand(true_blk);
+                        let false_blk = self.gen_operand(false_blk);
 
                         let pos = self.codes.len();
                         patchs.push(Box::new(move |this: &mut Self| {
@@ -357,8 +357,8 @@ impl Codegen {
                     }
 
                     Instruction::Await { promise, dst } => {
-                        let promise = self.gen_operand(index, promise);
-                        let dst = self.gen_operand(index, dst);
+                        let promise = self.gen_operand(promise);
+                        let dst = self.gen_operand(dst);
                         self.codes
                             .push(Bytecode::double(Opcode::Await, dst, promise));
                     }
@@ -389,18 +389,9 @@ impl Codegen {
         &self.codes
     }
 
-    fn gen_load_const(&mut self, index: usize, dst: Value, const_id: Value) {
-        let dst_reg = self.gen_operand(index, dst);
-        self.codes.push(Bytecode::double(
-            Opcode::LoadConst,
-            dst_reg,
-            const_id.to_operand(),
-        ));
-    }
-
-    fn gen_call(&mut self, index: usize, func: Value, args: &[Value], result: Value) {
+    fn gen_call(&mut self, func: Value, args: &[Value], result: Value) {
         // 0. result register
-        // let result_reg = self.gen_operand(index, result);
+        // let result_reg = self.gen_operand( result);
 
         // 1. backup registers
         let in_use_registers = self.reg_alloc.in_use_registers();
@@ -410,7 +401,7 @@ impl Codegen {
 
         // 2. push arguments
         for arg in args.iter().rev() {
-            let arg = self.gen_operand(index, *arg);
+            let arg = self.gen_operand(*arg);
 
             self.codes.push(Bytecode::single(Opcode::Push, arg));
         }
@@ -433,7 +424,7 @@ impl Codegen {
         }
 
         // 3. move result
-        let result_reg = self.gen_operand(index, result);
+        let result_reg = self.gen_operand(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
@@ -441,7 +432,7 @@ impl Codegen {
         ));
     }
 
-    fn gen_call_ex(&mut self, index: usize, func: Value, args: &[Value], result: Value) {
+    fn gen_call_ex(&mut self, func: Value, args: &[Value], result: Value) {
         // 1. backup registers
         let in_use_registers = self.reg_alloc.in_use_registers();
         for reg in in_use_registers.iter().copied() {
@@ -450,14 +441,14 @@ impl Codegen {
 
         // 2. push arguments
         for arg in args.iter().rev() {
-            let arg = self.gen_operand(index, *arg);
+            let arg = self.gen_operand(*arg);
 
             self.codes.push(Bytecode::single(Opcode::Push, arg));
         }
 
         // 3. call function
 
-        let callable = self.gen_operand(index, func);
+        let callable = self.gen_operand(func);
         self.codes.push(Bytecode::single(Opcode::CallEx, callable));
 
         // 4. pop arguments
@@ -473,7 +464,7 @@ impl Codegen {
         }
 
         // 3. move result
-        let result_reg = self.gen_operand(index, result);
+        let result_reg = self.gen_operand(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
@@ -481,10 +472,10 @@ impl Codegen {
         ));
     }
 
-    fn gen_call_native(&mut self, index: usize, func: Value, args: &[Value], result: Value) {
+    fn gen_call_native(&mut self, func: Value, args: &[Value], result: Value) {
         // 1. push arguments
         for arg in args.iter().rev() {
-            let arg = self.gen_operand(index, *arg);
+            let arg = self.gen_operand(*arg);
             self.codes.push(Bytecode::single(Opcode::Push, arg));
         }
 
@@ -500,7 +491,7 @@ impl Codegen {
         ));
 
         // 3. call function
-        let callable = self.gen_operand(index, func);
+        let callable = self.gen_operand(func);
         self.codes.push(Bytecode::double(
             Opcode::CallNative,
             callable,
@@ -522,7 +513,7 @@ impl Codegen {
         ));
 
         // 6. move result
-        let result_reg = self.gen_operand(index, result);
+        let result_reg = self.gen_operand(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
@@ -530,17 +521,10 @@ impl Codegen {
         ));
     }
 
-    fn gen_prop_call(
-        &mut self,
-        index: usize,
-        object: Value,
-        property: Value,
-        args: &[Value],
-        result: Value,
-    ) {
+    fn gen_prop_call(&mut self, object: Value, property: Value, args: &[Value], result: Value) {
         // 1. push arguments
         for arg in args.iter().rev() {
-            let arg = self.gen_operand(index, *arg);
+            let arg = self.gen_operand(*arg);
             self.codes.push(Bytecode::single(Opcode::Push, arg));
         }
 
@@ -556,8 +540,8 @@ impl Codegen {
         ));
 
         // 3. call function
-        let callable = self.gen_operand(index, object);
-        let prop = self.gen_operand(index, property);
+        let callable = self.gen_operand(object);
+        let prop = self.gen_operand(property);
         self.codes.push(Bytecode::triple(
             Opcode::PropCall,
             callable,
@@ -580,7 +564,7 @@ impl Codegen {
         ));
 
         // 6. move result
-        let result_reg = self.gen_operand(index, result);
+        let result_reg = self.gen_operand(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
@@ -588,14 +572,14 @@ impl Codegen {
         ));
     }
 
-    fn gen_operand(&mut self, index: usize, value: Value) -> Operand {
+    fn gen_operand(&mut self, value: Value) -> Operand {
         match value {
             Value::Primitive(v) => Operand::new_primitive(v),
             Value::Constant(id) => Operand::new_immd(id.as_usize() as isize),
             Value::Function(id) => Operand::new_symbol(id.as_usize() as u32),
             Value::Block(id) => Operand::new_immd(id.as_usize() as isize),
             Value::Variable(_) => {
-                let register = self.reg_alloc.alloc(index, value);
+                let register = self.reg_alloc.alloc(value);
                 Operand::new_register(register)
             }
         }

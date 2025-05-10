@@ -21,10 +21,10 @@ pub struct Interpreter {
 impl Interpreter {
     pub fn new(module: Module, env: Environment, vm: VM) -> Self {
         let Module {
-            name,
             constants,
             instructions,
             symtab: symbles,
+            ..
         } = module;
 
         let constants = constants.into_iter().map(ValueRef::from_constant).collect();
