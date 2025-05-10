@@ -1,6 +1,5 @@
 use evalit::{Environment, Interpreter, ValueRef};
 
-
 fn main() {
     let mut env = Environment::new();
 
@@ -14,10 +13,13 @@ fn main() {
         sum += i;
     }
 
+    println(resp);
+
+
     return sum;
     "#;
 
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval_script(script, env).unwrap();
 
     println!("ret: {retval:?}");
 }

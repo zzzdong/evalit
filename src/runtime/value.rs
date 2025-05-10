@@ -50,6 +50,10 @@ impl ValueRef {
         ValueRef(Rc::new(RefCell::new(value)))
     }
 
+    pub(crate) fn from_oject(object: Box<dyn Object>) -> Self {
+        ValueRef(Rc::new(RefCell::new(Value(object))))
+    }
+
     pub fn value(&self) -> Ref<Value> {
         self.0.borrow()
     }

@@ -1,7 +1,6 @@
 use log::debug;
 
 use crate::bytecode::{Module, Register};
-use crate::ir::builder::InstBuilder;
 use crate::{Environment, Error, ast::*};
 
 use super::codegen::Codegen;

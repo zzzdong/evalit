@@ -2,19 +2,20 @@ use std::{fmt, pin::Pin};
 
 use futures::FutureExt;
 
-use crate::{Object, ValueRef};
+
+use crate::{Object, Value};
 
 /// Promise
-pub struct Promise(pub(crate) Pin<Box<dyn Future<Output = ValueRef> + 'static>>);
+pub struct Promise(pub(crate) Pin<Box<dyn Future<Output = Value> + Send + 'static>>);
 
 impl Promise {
-    pub fn new(fut: impl Future<Output = ValueRef> + 'static) -> Self {
+    pub fn new(fut: impl Future<Output = Value> + Send + 'static) -> Self {
         Self(Box::pin(fut))
     }
 }
 
 impl Future for Promise {
-    type Output = ValueRef;
+    type Output = Value;
 
     fn poll(
         mut self: std::pin::Pin<&mut Self>,
