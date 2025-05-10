@@ -284,10 +284,7 @@ impl<'a> ASTLower<'a> {
 
     fn lower_function_item(&mut self, fn_item: FunctionItem) -> Value {
         let FunctionItem {
-            name,
-            params,
-            return_ty,
-            body,
+            name, params, body, ..
         } = fn_item;
 
         let value = self.lower_function(Some(name.to_string()), params, body);
@@ -394,8 +391,6 @@ impl<'a> ASTLower<'a> {
             .into_iter()
             .map(|arg| self.lower_expression(arg))
             .collect();
-
-        let func_ty = func.ty().clone();
 
         match func.node {
             Expression::Member(member) => {
@@ -541,7 +536,7 @@ impl<'a> ASTLower<'a> {
         match self.symbols.get(&identifier.0) {
             Some(Variable(addr)) => addr,
             None => {
-                if let Some(env) = self.env.get(&identifier.0) {
+                if let Some(_env) = self.env.get(&identifier.0) {
                     return self
                         .builder
                         .load_external_variable(identifier.0.to_string());
@@ -610,25 +605,6 @@ impl<'a> ASTLower<'a> {
 
     fn level_loop_context(&mut self) {
         self.loop_contexts.pop().expect("not in loop context");
-    }
-
-    /// 获取Value的类型
-    fn get_value_type(&self, value: &Value) -> Type {
-        match value {
-            Value::Primitive(p) => match p {
-                Primitive::Null => Type::Null,
-                Primitive::Boolean(_) => Type::Boolean,
-                Primitive::Integer(_) => Type::Integer,
-                Primitive::Float(_) => Type::Float,
-                Primitive::Char(_) => Type::Char,
-                _ => Type::Unknown,
-            },
-            Value::Function(_) => Type::Function {
-                params: vec![],
-                return_ty: None,
-            },
-            _ => Type::Unknown,
-        }
     }
 }
 

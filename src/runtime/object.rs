@@ -7,22 +7,26 @@ mod immd;
 mod integer;
 mod map;
 mod null;
-mod promise;
 mod range;
 mod string;
 mod tuple;
+
+#[cfg(feature = "async")]
+mod promise;
 
 pub use emurator::Enumerator;
 pub use function::{Callable, NativeFunction, UserFunction};
 pub use immd::Immd;
 pub use null::Null;
-pub use promise::Promise;
 pub use range::Range;
+
+#[cfg(feature = "async")]
+pub use promise::Promise;
 
 use std::fmt;
 
+#[cfg(feature = "async")]
 use futures::Future;
-
 
 use super::{RuntimeError, Value, ValueRef};
 
@@ -196,8 +200,6 @@ pub trait Object: std::any::Any + std::fmt::Debug {
     }
 }
 
-
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OperateKind {
     Add,
@@ -259,7 +261,7 @@ impl fmt::Display for OperateKind {
 
 #[cfg(test)]
 mod test {
-    use crate::runtime::{ValueRef, Value};
+    use crate::runtime::{Value, ValueRef};
 
     #[test]
     fn test_null() {

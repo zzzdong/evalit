@@ -86,14 +86,13 @@ impl SemanticAnalyzer {
 
                     if let Some(type_expr) = ty {
                         let expected_type = self.type_from_type_expr(type_expr)?;
-                        if expected_type != Type::Unknown
-                            && expr.ty != expected_type {
-                                return Err(CompileError::TypeMismatch {
-                                    expected: expected_type,
-                                    actual: expr.ty.clone(),
-                                    span: expr.span,
-                                });
-                            }
+                        if expected_type != Type::Unknown && expr.ty != expected_type {
+                            return Err(CompileError::TypeMismatch {
+                                expected: expected_type,
+                                actual: expr.ty.clone(),
+                                span: expr.span,
+                            });
+                        }
                     }
 
                     self.type_env.insert(name.clone(), expr.ty.clone());
@@ -231,11 +230,11 @@ impl SemanticAnalyzer {
                 self.type_env.insert(id.clone(), Type::Void);
             }
             Pattern::Tuple(tuple) => {
-                for (i, pat) in tuple.iter_mut().enumerate() {
+                for pat in tuple.iter_mut() {
                     self.analyze_pattern(pat, expr)?;
                 }
             }
-            Pattern::Literal(literal) => {}
+            Pattern::Literal(_literal) => {}
         }
 
         Ok(())
@@ -261,7 +260,7 @@ impl SemanticAnalyzer {
     fn analyze_return_statement(
         &mut self,
         return_stmt: &mut ReturnStatement,
-        span: Span,
+        _span: Span,
     ) -> Result<(), CompileError> {
         if let Some(expr) = &mut return_stmt.value {
             self.analyze_expression(expr)?;
@@ -412,13 +411,15 @@ impl SemanticAnalyzer {
                 match op {
                     BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
                         if (!lhs.ty.is_numeric() || rhs.ty != lhs.ty)
-                            && lhs.ty != Type::String && lhs.ty != Type::Char {
-                                return Err(CompileError::TypeMismatch {
-                                    expected: Type::Integer,
-                                    actual: lhs.ty.clone(),
-                                    span: lhs.span,
-                                });
-                            }
+                            && lhs.ty != Type::String
+                            && lhs.ty != Type::Char
+                        {
+                            return Err(CompileError::TypeMismatch {
+                                expected: Type::Integer,
+                                actual: lhs.ty.clone(),
+                                span: lhs.span,
+                            });
+                        }
                     }
                     BinOp::LogicAnd | BinOp::LogicOr => {
                         if lhs.ty != Type::Boolean || rhs.ty != Type::Boolean {
@@ -489,7 +490,7 @@ impl SemanticAnalyzer {
                         });
                     }
 
-                    for (i, (arg, param_ty)) in args.iter_mut().zip(params.iter()).enumerate() {
+                    for (arg, param_ty) in args.iter_mut().zip(params.iter()) {
                         self.analyze_expression(arg)?;
                         if let Some(ty) = param_ty {
                             if &arg.ty != ty && arg.ty != Type::Void && arg.ty != Type::Unknown {

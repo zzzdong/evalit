@@ -215,7 +215,9 @@ fn test_eval_for() {
 
     let retval = Interpreter::eval_script(script, env);
 
+    println!("ret: {retval:?}");
     assert!(retval.is_ok());
+    
 }
 
 #[test]

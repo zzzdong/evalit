@@ -6,11 +6,8 @@ mod interpreter;
 mod ir;
 mod runtime;
 
-#[cfg(test)]
-mod test_utils;
-
 pub use error::Error;
 pub use interpreter::Interpreter;
-pub use runtime::{Environment, NativeFunction, Null, Object, Promise, RuntimeError, ValueRef, Value};
-// #[cfg(test)]
-// pub use test_utils::assert_value_eq;
+pub use runtime::{Environment, NativeFunction, Null, Object, RuntimeError, ValueRef, Value};
+#[cfg(feature = "async")]
+pub use runtime::Promise;

@@ -8,7 +8,7 @@ use log::trace;
 use petgraph::Direction::Outgoing;
 
 use crate::{
-    bytecode::{MIN_REQUIRED_REGISTER, Operand, Register},
+    bytecode::{MIN_REQUIRED_REGISTER, Register},
     ir::instruction::{Block, BlockId, ControlFlowGraph, Instruction, Value},
 };
 
@@ -123,25 +123,12 @@ impl LiveIntervalAnalyzer {
         let mut liveness = Self::build_basic_intervals(cfg);
 
         // 第二遍：计算live_in和live_out集合
-        let (live_in_sets, live_out_sets) = Self::compute_liveness_sets(cfg);
+        let (_live_in_sets, live_out_sets) = Self::compute_liveness_sets(cfg);
 
         // 第三遍：更新变量存活周期
         Self::update_intervals(cfg, &live_out_sets, &mut liveness);
 
         liveness
-    }
-
-    /// 计算每个基本块的起始指令索引
-    fn calculate_block_starts(cfg: &ControlFlowGraph) -> Vec<usize> {
-        let mut block_starts = Vec::with_capacity(cfg.blocks.len());
-        let mut current_index = 0;
-
-        for block in cfg.blocks.iter() {
-            block_starts.push(current_index);
-            current_index += block.instructions.len();
-        }
-
-        block_starts
     }
 
     /// 第一遍：扫描所有指令，建立基本的LiveInterval
@@ -221,9 +208,6 @@ impl LiveIntervalAnalyzer {
                 // 计算当前块的live_out（从后继块的live_in获取）
                 let mut new_live_out = Self::compute_block_liveness(cfg, block, &live_in_sets);
 
-                // 计算当前块的live_in
-                let mut new_live_in = HashSet::new();
-
                 // 从后向前扫描指令
                 for inst in block.instructions.iter().rev() {
                     let (defined, used) = inst.defined_and_used_vars();
@@ -244,7 +228,7 @@ impl LiveIntervalAnalyzer {
                 }
 
                 // live_in就是扫描完所有指令后的live_out
-                new_live_in = new_live_out.clone();
+                let new_live_in: HashSet<Value> = new_live_out.clone();
 
                 // 检查是否有变化
                 let old_live_in = live_in_sets.get(&block.id).unwrap();
@@ -362,7 +346,6 @@ impl LiveIntervalAnalyzer {
 pub struct RegAlloc {
     liveness: Liveness,
     pub(super) reg_set: RegisterSet,
-    args: Vec<StackSlot>,
 }
 
 impl RegAlloc {
@@ -373,7 +356,6 @@ impl RegAlloc {
         Self {
             liveness: Liveness::new(),
             reg_set: RegisterSet::new(registers),
-            args: Vec::new(),
         }
     }
 
@@ -440,7 +422,7 @@ impl RegAlloc {
         actions
     }
 
-    pub fn alloc(&mut self, index: usize, value: Value) -> Register {
+    pub fn alloc(&mut self, value: Value) -> Register {
         // 由于所有的变量都在预处理时加载到寄存器，所以，可以直接拿到
         self.reg_set
             .find(value)
@@ -498,20 +480,11 @@ impl RegAlloc {
         }
 
         // 2.2 保留3个临时寄存器，其他的进行优先级分配
-        let (temp_regs, fixed_regs) = registers.split_at(3);
+        let (_temp_regs, fixed_regs) = registers.split_at(3);
 
         // 计算每个组的优先级（基于区间长度）
-        let mut groups_with_priority: Vec<(usize, Vec<LiveInterval>)> = groups
-            .into_iter()
-            .enumerate()
-            .map(|(i, intervals)| {
-                let total_length: usize = intervals
-                    .iter()
-                    .map(|interval| interval.end - interval.start)
-                    .sum();
-                (i, intervals)
-            })
-            .collect();
+        let mut groups_with_priority: Vec<(usize, Vec<LiveInterval>)> =
+            groups.into_iter().enumerate().collect();
 
         // 按优先级排序（区间长度降序）
         groups_with_priority.sort_by(|(_, a), (_, b)| {
@@ -562,27 +535,6 @@ impl RegisterSet {
         Self { registers }
     }
 
-    fn len(&self) -> usize {
-        self.registers.len()
-    }
-
-    fn allocate(&mut self, variable: Value) -> Option<Operand> {
-        for reg in self.registers.iter() {
-            if reg.variable == Some(variable) {
-                return Some(Operand::new_register(reg.register));
-            }
-        }
-
-        for reg in self.registers.iter_mut() {
-            if reg.variable.is_none() {
-                reg.variable = Some(variable);
-                return Some(Operand::new_register(reg.register));
-            }
-        }
-
-        None
-    }
-
     fn must_alloc(&mut self, value: Value) -> Register {
         let reg = self
             .registers
@@ -603,10 +555,6 @@ impl RegisterSet {
         reg.register
     }
 
-    fn can_allocate(&self) -> bool {
-        self.registers.iter().any(|reg| reg.variable.is_none())
-    }
-
     fn use_register(&mut self, register: Register, variable: Value, is_fixed: bool) {
         for reg in self.registers.iter_mut() {
             if reg.register == register {
@@ -615,17 +563,6 @@ impl RegisterSet {
                 return;
             }
         }
-    }
-
-    fn release(&mut self, variable: Value) -> Option<Operand> {
-        for reg in self.registers.iter_mut() {
-            if reg.variable == Some(variable) {
-                reg.variable = None;
-                return Some(Operand::new_register(reg.register));
-            }
-        }
-
-        None
     }
 
     fn find(&self, variable: Value) -> Option<Register> {
@@ -662,21 +599,6 @@ impl RegisterHold {
             register,
             variable: None,
             is_fixed: false,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-struct StackSlot {
-    variable: Option<Value>,
-    offset: isize,
-}
-
-impl StackSlot {
-    fn new(variable: Value, offset: isize) -> Self {
-        Self {
-            variable: Some(variable),
-            offset,
         }
     }
 }

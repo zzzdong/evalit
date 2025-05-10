@@ -146,7 +146,7 @@ where
     F: Fn() -> Ret + Clone + 'static,
     Ret: IntoRet,
 {
-    fn call(&mut self, args: &[ValueRef]) -> Result<Option<Value>, RuntimeError> {
+    fn call(&mut self, _args: &[ValueRef]) -> Result<Option<Value>, RuntimeError> {
         self().into_ret()
     }
 }

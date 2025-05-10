@@ -284,13 +284,13 @@ pub enum Instruction {
 
 impl Instruction {
     pub fn is_terminator(&self) -> bool {
-        match self {
-            Instruction::Return { .. }
-            | Instruction::BrIf { .. }
-            | Instruction::Br { .. }
-            | Instruction::Halt => true,
-            _ => false,
-        }
+        matches!(
+            self,
+            Instruction::Halt
+                | Instruction::Return { .. }
+                | Instruction::Br { .. }
+                | Instruction::BrIf { .. }
+        )
     }
 
     pub fn defined_and_used_vars(&self) -> (Vec<Value>, Vec<Value>) {

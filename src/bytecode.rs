@@ -26,12 +26,6 @@ impl Module {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct Function {
-    pub id: FunctionId,
-    pub name: Option<String>,
-    pub instructions: Vec<Bytecode>,
-}
 
 #[derive(Debug, Clone)]
 pub struct Bytecode {
