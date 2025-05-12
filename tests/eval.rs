@@ -95,7 +95,7 @@ fn test_eval_control_flow() {
 
 #[test]
 fn test_eval_array() {
-    // init();
+    init_logger();
 
     let mut env = Environment::new();
 

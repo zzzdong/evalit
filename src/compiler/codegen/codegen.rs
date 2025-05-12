@@ -17,6 +17,7 @@ pub struct Codegen {
     reg_alloc: RegAlloc,
     codes: Vec<Bytecode>,
     block_map: HashMap<isize, isize>,
+    inst_index: usize,
 }
 
 impl Codegen {
@@ -25,6 +26,7 @@ impl Codegen {
             reg_alloc: RegAlloc::new(registers),
             codes: Vec::new(),
             block_map: HashMap::new(),
+            inst_index: 0,
         }
     }
 
@@ -45,8 +47,6 @@ impl Codegen {
         debug!("===IR===");
 
         self.reg_alloc.arrange(&cfg);
-
-        let mut index = 0;
 
         let mut patchs: Vec<PatchFn> = Vec::new();
 
@@ -82,20 +82,22 @@ impl Codegen {
 
             for inst in &block.instructions {
                 // preload
-                for action in self.reg_alloc.pre_allocate(index) {
-                    match action {
-                        Action::Restore { stack, register } => {
-                            self.codes.push(Bytecode::double(
-                                Opcode::Mov,
-                                register.into(),
-                                Operand::Stack(stack as isize),
-                            ));
-                        }
-                        _ => unreachable!(),
-                    }
-                }
+                // if !inst.is_call() {
+                //     for action in self.reg_alloc.pre_allocate(index) {
+                //         match action {
+                //             Action::UnSpill { stack, register } => {
+                //                 self.codes.push(Bytecode::double(
+                //                     Opcode::Mov,
+                //                     register.into(),
+                //                     Operand::Stack(stack as isize),
+                //                 ));
+                //             }
+                //             _ => unreachable!(),
+                //         }
+                //     }
+                // }
 
-                debug!("inst: {inst:?}");
+                debug!("inst[{}]: {inst:?}", self.inst_index);
                 debug!("register: {}", self.reg_alloc.reg_set);
 
                 match inst.clone() {
@@ -364,21 +366,36 @@ impl Codegen {
                     }
                 }
 
-                // spill
-                for action in self.reg_alloc.post_allocate(index) {
-                    match action {
-                        Action::Spill { stack, register } => {
+                let (defined, used) = inst.defined_and_used_vars();
+                for var in defined {
+                    if matches!(var, Value::Variable(_)) {
+                        if let Some(Action::Spill { stack, register }) =
+                            self.reg_alloc.release(var, self.inst_index)
+                        {
                             self.codes.push(Bytecode::double(
                                 Opcode::Mov,
                                 Operand::Stack(stack as isize),
                                 register.into(),
                             ));
                         }
-                        _ => unreachable!(),
                     }
                 }
 
-                index += 1;
+                for var in used {
+                    if matches!(var, Value::Variable(_)) {
+                        if let Some(Action::Spill { stack, register }) =
+                            self.reg_alloc.release(var, self.inst_index)
+                        {
+                            self.codes.push(Bytecode::double(
+                                Opcode::Mov,
+                                Operand::Stack(stack as isize),
+                                register.into(),
+                            ));
+                        }
+                    }
+                }
+
+                self.inst_index += 1;
             }
         }
 
@@ -400,11 +417,7 @@ impl Codegen {
         }
 
         // 2. push arguments
-        for arg in args.iter().rev() {
-            let arg = self.gen_operand(*arg);
-
-            self.codes.push(Bytecode::single(Opcode::Push, arg));
-        }
+        self.store_args(args, self.inst_index);
 
         // 3. call function
         self.codes
@@ -440,11 +453,7 @@ impl Codegen {
         }
 
         // 2. push arguments
-        for arg in args.iter().rev() {
-            let arg = self.gen_operand(*arg);
-
-            self.codes.push(Bytecode::single(Opcode::Push, arg));
-        }
+        self.store_args(args, self.inst_index);
 
         // 3. call function
 
@@ -474,10 +483,7 @@ impl Codegen {
 
     fn gen_call_native(&mut self, func: Value, args: &[Value], result: Value) {
         // 1. push arguments
-        for arg in args.iter().rev() {
-            let arg = self.gen_operand(*arg);
-            self.codes.push(Bytecode::single(Opcode::Push, arg));
-        }
+        self.store_args(args, self.inst_index);
 
         // 2. new stack frame
         self.codes.push(Bytecode::single(
@@ -523,10 +529,7 @@ impl Codegen {
 
     fn gen_prop_call(&mut self, object: Value, property: Value, args: &[Value], result: Value) {
         // 1. push arguments
-        for arg in args.iter().rev() {
-            let arg = self.gen_operand(*arg);
-            self.codes.push(Bytecode::single(Opcode::Push, arg));
-        }
+        self.store_args(args, self.inst_index);
 
         // 2. new stack frame
         self.codes.push(Bytecode::single(
@@ -572,6 +575,25 @@ impl Codegen {
         ));
     }
 
+    fn store_args(&mut self, args: &[Value], index: usize) {
+        for arg in args.iter().rev() {
+            let op = self.gen_operand(*arg);
+            self.codes.push(Bytecode::single(Opcode::Push, op));
+            if let Some(action) = self.reg_alloc.release(*arg, index) {
+                match action {
+                    Action::Spill { stack, register } => {
+                        self.codes.push(Bytecode::double(
+                            Opcode::Mov,
+                            Operand::Stack(stack as isize),
+                            register.into(),
+                        ));
+                    }
+                    _ => unreachable!("action must be spill"),
+                }
+            }
+        }
+    }
+
     fn gen_operand(&mut self, value: Value) -> Operand {
         match value {
             Value::Primitive(v) => Operand::new_primitive(v),
@@ -579,7 +601,16 @@ impl Codegen {
             Value::Function(id) => Operand::new_symbol(id.as_usize() as u32),
             Value::Block(id) => Operand::new_immd(id.as_usize() as isize),
             Value::Variable(_) => {
-                let register = self.reg_alloc.alloc(value);
+                let (register, unspill) = self.reg_alloc.alloc(value, self.inst_index);
+
+                if let Some(Action::Restore { stack, register }) = unspill {
+                    self.codes.push(Bytecode::double(
+                        Opcode::Mov,
+                        register.into(),
+                        Operand::Stack(stack as isize),
+                    ));
+                }
+
                 Operand::new_register(register)
             }
         }

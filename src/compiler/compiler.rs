@@ -104,7 +104,7 @@ impl Compiler {
         // IR生成
         let unit = lowering(ast, env)?;
 
-        let mut codegen = Codegen::new(&Register::general());
+        let mut codegen = Codegen::new(&Register::small_general());
         let insts = codegen.generate_code(unit.control_flow_graph, false);
 
         let mut instructions = insts.to_vec();
@@ -113,7 +113,7 @@ impl Compiler {
 
         let mut offset = instructions.len();
         for func in unit.functions {
-            let mut codegen = Codegen::new(&Register::general());
+            let mut codegen = Codegen::new(&Register::small_general());
             let insts = codegen.generate_code(func.control_flow_graph, true);
             symtab.insert(func.id, offset);
             offset += insts.len();
@@ -137,6 +137,11 @@ mod test {
 
     #[test]
     fn test_compile_if_else() {
+            let _ = env_logger::builder()
+        .filter_level(log::LevelFilter::Trace)
+        .is_test(true)
+        .try_init();
+
         let input = r#"
         fn add(a, b) {
             let c = 1;
