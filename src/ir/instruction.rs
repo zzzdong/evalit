@@ -422,9 +422,9 @@ impl std::fmt::Display for Instruction {
                 args,
                 result: dst,
             } => {
-                write!(f, "{dst} = call {func}")?;
+                write!(f, "{dst} = call {func} ")?;
                 for arg in args {
-                    write!(f, " ,{arg}")?;
+                    write!(f, ", {arg}")?;
                 }
                 Ok(())
             }
@@ -435,7 +435,7 @@ impl std::fmt::Display for Instruction {
             } => {
                 write!(f, "{dst} = call_ex {callable}")?;
                 for arg in args {
-                    write!(f, " ,{arg}")?;
+                    write!(f, ", {arg}")?;
                 }
                 Ok(())
             }
@@ -446,7 +446,7 @@ impl std::fmt::Display for Instruction {
             } => {
                 write!(f, "{dst} = call_native {func}")?;
                 for arg in args {
-                    write!(f, " ,{arg}")?;
+                    write!(f, ", {arg}")?;
                 }
                 Ok(())
             }

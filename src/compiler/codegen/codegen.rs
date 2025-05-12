@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 
-use log::debug;
+use log::{debug, trace};
 use petgraph::visit::DfsPostOrder;
 
 use crate::{
@@ -30,7 +30,7 @@ impl Codegen {
         }
     }
 
-    pub fn generate_code(&mut self, cfg: ControlFlowGraph, is_func: bool) -> &[Bytecode] {
+    pub fn generate_code(&mut self, cfg: ControlFlowGraph) -> &[Bytecode] {
         let mut cfg = cfg;
 
         Self::resort_blocks(&mut cfg);
@@ -49,18 +49,6 @@ impl Codegen {
         self.reg_alloc.arrange(&cfg);
 
         let mut patchs: Vec<PatchFn> = Vec::new();
-
-        if is_func {
-            self.codes.push(Bytecode::single(
-                Opcode::PushC,
-                Operand::new_register(Register::RBP),
-            ));
-            self.codes.push(Bytecode::double(
-                Opcode::MovC,
-                Operand::new_register(Register::RBP),
-                Operand::new_register(Register::RSP),
-            ));
-        }
 
         // alloc stack frame, need rewrite with actual stack size
         // rsp = rsp + stack_size
@@ -300,20 +288,6 @@ impl Codegen {
                             ));
                         }
 
-                        if is_func {
-                            // restore prev stack frame
-                            // mov rbp to rsp
-                            // pop rbp
-                            self.codes.push(Bytecode::double(
-                                Opcode::MovC,
-                                Operand::new_register(Register::RSP),
-                                Operand::new_register(Register::RBP),
-                            ));
-
-                            self.codes
-                                .push(Bytecode::single(Opcode::PopC, Register::RBP.into()));
-                        }
-
                         self.codes.push(Bytecode::empty(Opcode::Ret));
                     }
                     Instruction::Br { dst } => {
@@ -372,6 +346,7 @@ impl Codegen {
                         if let Some(Action::Spill { stack, register }) =
                             self.reg_alloc.release(var, self.inst_index)
                         {
+                            trace!("spilling({var}) {register} -> [rbp+{stack}]");
                             self.codes.push(Bytecode::double(
                                 Opcode::Mov,
                                 Operand::Stack(stack as isize),
@@ -386,6 +361,7 @@ impl Codegen {
                         if let Some(Action::Spill { stack, register }) =
                             self.reg_alloc.release(var, self.inst_index)
                         {
+                            trace!("spilling({var}) {register} -> [rbp+{stack}]");
                             self.codes.push(Bytecode::double(
                                 Opcode::Mov,
                                 Operand::Stack(stack as isize),
@@ -420,8 +396,28 @@ impl Codegen {
         self.store_args(args, self.inst_index);
 
         // 3. call function
+        self.codes.push(Bytecode::single(
+            Opcode::PushC,
+            Operand::new_register(Register::RBP),
+        ));
+        self.codes.push(Bytecode::double(
+            Opcode::MovC,
+            Operand::new_register(Register::RBP),
+            Operand::new_register(Register::RSP),
+        ));
+
+        // call
         self.codes
             .push(Bytecode::single(Opcode::Call, func.to_operand()));
+
+        self.codes.push(Bytecode::double(
+            Opcode::MovC,
+            Operand::new_register(Register::RSP),
+            Operand::new_register(Register::RBP),
+        ));
+
+        self.codes
+            .push(Bytecode::single(Opcode::PopC, Register::RBP.into()));
 
         // 4. pop arguments
         self.codes.push(Bytecode::triple(
@@ -446,6 +442,8 @@ impl Codegen {
     }
 
     fn gen_call_ex(&mut self, func: Value, args: &[Value], result: Value) {
+        let callable = self.gen_operand(func);
+
         // 1. backup registers
         let in_use_registers = self.reg_alloc.in_use_registers();
         for reg in in_use_registers.iter().copied() {
@@ -456,9 +454,27 @@ impl Codegen {
         self.store_args(args, self.inst_index);
 
         // 3. call function
+        self.codes.push(Bytecode::single(
+            Opcode::PushC,
+            Operand::new_register(Register::RBP),
+        ));
+        self.codes.push(Bytecode::double(
+            Opcode::MovC,
+            Operand::new_register(Register::RBP),
+            Operand::new_register(Register::RSP),
+        ));
 
-        let callable = self.gen_operand(func);
+        // call_ex
         self.codes.push(Bytecode::single(Opcode::CallEx, callable));
+
+        self.codes.push(Bytecode::double(
+            Opcode::MovC,
+            Operand::new_register(Register::RSP),
+            Operand::new_register(Register::RBP),
+        ));
+
+        self.codes
+            .push(Bytecode::single(Opcode::PopC, Register::RBP.into()));
 
         // 4. pop arguments
         self.codes.push(Bytecode::triple(
@@ -482,10 +498,12 @@ impl Codegen {
     }
 
     fn gen_call_native(&mut self, func: Value, args: &[Value], result: Value) {
+        let callable = self.gen_operand(func);
+
         // 1. push arguments
         self.store_args(args, self.inst_index);
 
-        // 2. new stack frame
+        // 3. call function
         self.codes.push(Bytecode::single(
             Opcode::PushC,
             Operand::new_register(Register::RBP),
@@ -496,19 +514,21 @@ impl Codegen {
             Operand::new_register(Register::RSP),
         ));
 
-        // 3. call function
-        let callable = self.gen_operand(func);
+        // call_native
         self.codes.push(Bytecode::double(
             Opcode::CallNative,
             callable,
             Operand::new_immd(args.len() as isize),
         ));
 
-        // 4. restore stack frame
-        self.codes.push(Bytecode::single(
-            Opcode::PopC,
+        self.codes.push(Bytecode::double(
+            Opcode::MovC,
+            Operand::new_register(Register::RSP),
             Operand::new_register(Register::RBP),
         ));
+
+        self.codes
+            .push(Bytecode::single(Opcode::PopC, Register::RBP.into()));
 
         // 4. pop arguments
         self.codes.push(Bytecode::triple(
@@ -528,10 +548,12 @@ impl Codegen {
     }
 
     fn gen_prop_call(&mut self, object: Value, property: Value, args: &[Value], result: Value) {
+        let callable = self.gen_operand(object);
+
         // 1. push arguments
         self.store_args(args, self.inst_index);
 
-        // 2. new stack frame
+        // 3. call function
         self.codes.push(Bytecode::single(
             Opcode::PushC,
             Operand::new_register(Register::RBP),
@@ -542,9 +564,8 @@ impl Codegen {
             Operand::new_register(Register::RSP),
         ));
 
-        // 3. call function
-        let callable = self.gen_operand(object);
         let prop = self.gen_operand(property);
+        // prop_call
         self.codes.push(Bytecode::triple(
             Opcode::PropCall,
             callable,
@@ -552,11 +573,14 @@ impl Codegen {
             Operand::new_immd(args.len() as isize),
         ));
 
-        // 4. restore stack frame
-        self.codes.push(Bytecode::single(
-            Opcode::PopC,
+        self.codes.push(Bytecode::double(
+            Opcode::MovC,
+            Operand::new_register(Register::RSP),
             Operand::new_register(Register::RBP),
         ));
+
+        self.codes
+            .push(Bytecode::single(Opcode::PopC, Register::RBP.into()));
 
         // 4. pop arguments
         self.codes.push(Bytecode::triple(
@@ -582,6 +606,7 @@ impl Codegen {
             if let Some(action) = self.reg_alloc.release(*arg, index) {
                 match action {
                     Action::Spill { stack, register } => {
+                        trace!("spilling({arg}) {register} -> [rbp+{stack}]");
                         self.codes.push(Bytecode::double(
                             Opcode::Mov,
                             Operand::Stack(stack as isize),
@@ -604,6 +629,7 @@ impl Codegen {
                 let (register, unspill) = self.reg_alloc.alloc(value, self.inst_index);
 
                 if let Some(Action::Restore { stack, register }) = unspill {
+                    trace!("unspilling({value}) [rbp+{stack}] -> {register}");
                     self.codes.push(Bytecode::double(
                         Opcode::Mov,
                         register.into(),
@@ -715,7 +741,7 @@ mod tests {
 
         let mut codegen = Codegen::new(&Register::small_general());
 
-        let bytecodes = codegen.generate_code(cfg, false);
+        let bytecodes = codegen.generate_code(cfg);
 
         for bytecode in bytecodes {
             println!("{bytecode};");
@@ -758,7 +784,7 @@ mod tests {
 
         let mut codegen = Codegen::new(&Register::small_general());
 
-        let bytecodes = codegen.generate_code(cfg, false);
+        let bytecodes = codegen.generate_code(cfg);
 
         for bytecode in bytecodes {
             println!("{bytecode};");
@@ -859,7 +885,7 @@ mod tests {
         });
 
         let mut codegen = Codegen::new(&Register::small_general());
-        let bytecodes = codegen.generate_code(cfg, false);
+        let bytecodes = codegen.generate_code(cfg);
 
         for bytecode in bytecodes {
             println!("{bytecode};");

@@ -5,7 +5,6 @@ use std::{
 };
 
 use log::trace;
-use pest::pratt_parser::Op;
 use petgraph::Direction::Outgoing;
 
 use crate::{
@@ -377,85 +376,37 @@ impl RegAlloc {
         self.liveness.stack_size()
     }
 
-     fn pre_allocate(&mut self, index: usize) -> Vec<Action> {
-        let mut actions = Vec::new();
-
-        let need_preload = self
-            .liveness
-            .intervals
-            .values()
-            .filter(|interval| interval.ranges.iter().any(|range| range.start == index));
-
-        for interval in need_preload {
-            trace!("preloading {}", interval.var);
-            match interval.reg {
-                Some(register) => {
-                    self.reg_set.use_register(register, interval.var, true);
-                }
-                None => {
-                    let register = self.reg_set.must_alloc(interval.var);
-                    let stack = interval.stack.unwrap();
-
-                    actions.push(Action::Restore { stack, register });
-                }
-            }
-        }
-
-        actions
-    }
-
-     fn post_allocate(&mut self, index: usize) -> Vec<Action> {
-        let need_spill = self.liveness.intervals.values().filter(|interval| {
-            interval.reg.is_none() && interval.ranges.iter().any(|range| range.end == index)
-        });
-
-        let mut actions = Vec::new();
-
-        for interval in need_spill {
-            trace!("spilling {}", interval.var);
-
-            if let Some(register) = self.reg_set.release(interval.var) {
-                let stack = interval.stack.unwrap();
-                actions.push(Action::Spill { stack, register });
-            }
-        }
-
-        actions
-    }
-
     pub fn alloc(&mut self, value: Value, index: usize) -> (Register, Option<Action>) {
         trace!("allocating {}", value);
 
         let interval = self.liveness.intervals.get(&value).unwrap();
 
         match self.reg_set.find(value) {
-            Some(register) => {
-                (register, None)
-            }
-            None => {
-                match interval.reg {
-                    Some(register) => {
-                        self.reg_set.use_register(register, value, true);
-                        (register, None)
-                    }
-                    None => {
-                        let reg = self.reg_set.must_alloc(value);
-
-                        if interval.ranges.iter().any(|range|range.start == index) {
-                            let spill = Action::Restore {
-                                stack: interval.stack.unwrap(),
-                                register: reg,
-                            };
-
-                            return (reg, Some(spill));
-                        }
-
-
-
-                        unreachable!("Invalid register")
-                    }
+            Some(register) => (register, None),
+            None => match interval.reg {
+                Some(register) => {
+                    self.reg_set.use_register(register, value, true);
+                    (register, None)
                 }
-            }
+                None => {
+                    let reg = self.reg_set.must_alloc(value);
+
+                    if interval
+                        .ranges
+                        .iter()
+                        .any(|range| range.start == index && interval.start != index)
+                    {
+                        let spill = Action::Restore {
+                            stack: interval.stack.unwrap(),
+                            register: reg,
+                        };
+
+                        return (reg, Some(spill));
+                    }
+
+                    (reg, None)
+                }
+            },
         }
     }
 
@@ -467,21 +418,14 @@ impl RegAlloc {
         }
 
         let interval = self.liveness.intervals.get(&value).unwrap();
-        if interval.ranges.iter().any(|range|range.end == index) {
-
+        if interval.ranges.iter().any(|range| range.end == index) {
             if let Some(stack) = interval.stack {
-                if let Some(register) = self.reg_set.find(value) {
-                    self.reg_set.release(value);
-                    let spill = Action::Spill {
-                        register,
-                        stack,
-                    };
-
+                if let Some(register) = self.reg_set.release(value) {
+                    let spill = Action::Spill { register, stack };
                     return Some(spill);
                 }
             }
         }
-
 
         None
     }
@@ -609,7 +553,6 @@ impl RegisterSet {
             .registers
             .iter_mut()
             .find(|reg| reg.variable == Some(value))
-            .take()
         {
             Some(reg) => {
                 reg.variable = None;
@@ -617,16 +560,6 @@ impl RegisterSet {
             }
             None => None,
         }
-    }
-
-    fn must_release(&mut self, value: Value) -> Register {
-        let reg = self
-            .registers
-            .iter_mut()
-            .find(|reg| reg.variable == Some(value))
-            .unwrap();
-        reg.variable = None;
-        reg.register
     }
 
     fn use_register(&mut self, register: Register, variable: Value, is_fixed: bool) {

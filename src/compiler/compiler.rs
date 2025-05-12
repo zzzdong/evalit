@@ -34,9 +34,15 @@ pub enum CompileError {
         span: Span,
     },
     Unreachable,
-    BreakOutsideLoop {span: Span},
-    ContinueOutsideLoop {span: Span},
-    ReturnOutsideFunction {span: Span},
+    BreakOutsideLoop {
+        span: Span,
+    },
+    ContinueOutsideLoop {
+        span: Span,
+    },
+    ReturnOutsideFunction {
+        span: Span,
+    },
 }
 
 impl From<ParseError> for CompileError {
@@ -76,8 +82,12 @@ impl std::fmt::Display for CompileError {
             }
             CompileError::Unreachable => write!(f, "Unreachable"),
             CompileError::BreakOutsideLoop { span } => write!(f, "Break outside loop at {span:?}"),
-            CompileError::ContinueOutsideLoop { span } => write!(f, "Continue outside loop at {span:?}"),
-            CompileError::ReturnOutsideFunction { span } => write!(f, "Return outside function at {span:?}"),
+            CompileError::ContinueOutsideLoop { span } => {
+                write!(f, "Continue outside loop at {span:?}")
+            }
+            CompileError::ReturnOutsideFunction { span } => {
+                write!(f, "Return outside function at {span:?}")
+            }
         }
     }
 }
@@ -104,8 +114,8 @@ impl Compiler {
         // IR生成
         let unit = lowering(ast, env)?;
 
-        let mut codegen = Codegen::new(&Register::small_general());
-        let insts = codegen.generate_code(unit.control_flow_graph, false);
+        let mut codegen = Codegen::new(&Register::general());
+        let insts = codegen.generate_code(unit.control_flow_graph);
 
         let mut instructions = insts.to_vec();
 
@@ -113,8 +123,8 @@ impl Compiler {
 
         let mut offset = instructions.len();
         for func in unit.functions {
-            let mut codegen = Codegen::new(&Register::small_general());
-            let insts = codegen.generate_code(func.control_flow_graph, true);
+            let mut codegen = Codegen::new(&Register::general());
+            let insts = codegen.generate_code(func.control_flow_graph);
             symtab.insert(func.id, offset);
             offset += insts.len();
             instructions.extend(insts.to_vec());
@@ -137,10 +147,10 @@ mod test {
 
     #[test]
     fn test_compile_if_else() {
-            let _ = env_logger::builder()
-        .filter_level(log::LevelFilter::Trace)
-        .is_test(true)
-        .try_init();
+        let _ = env_logger::builder()
+            .filter_level(log::LevelFilter::Trace)
+            .is_test(true)
+            .try_init();
 
         let input = r#"
         fn add(a, b) {

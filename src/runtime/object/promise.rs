@@ -2,7 +2,6 @@ use std::{fmt, pin::Pin};
 
 use futures::FutureExt;
 
-
 use crate::{Object, Value};
 
 /// Promise

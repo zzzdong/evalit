@@ -142,7 +142,11 @@ impl VM {
         Ok(self.data_stack[index as usize].clone())
     }
 
-    pub fn set_value_to_stack(&mut self, offset: isize, value: ValueRef) -> Result<(), RuntimeError> {
+    pub fn set_value_to_stack(
+        &mut self,
+        offset: isize,
+        value: ValueRef,
+    ) -> Result<(), RuntimeError> {
         let index = self.rbp as isize + offset;
         if index < 0 || index as usize >= STACK_MAX {
             return Err(RuntimeError::StackOverflow);

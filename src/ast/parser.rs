@@ -779,7 +779,7 @@ fn unescape_string(s: &str) -> String {
                     }
                 }
                 Some(c) => result.push_str(&format!("\\{c}")), // 未知转义字符，保留原始形式
-                None => result.push('\\'),                       // 单独的反斜杠，保留原始形式
+                None => result.push('\\'),                     // 单独的反斜杠，保留原始形式
             }
         } else {
             result.push(c);
