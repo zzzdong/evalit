@@ -1,6 +1,6 @@
 use std::{fmt, marker::PhantomData};
 
-use crate::{bytecode::FunctionId, Object, RuntimeError, Value, ValueRef};
+use crate::{Object, RuntimeError, Value, ValueRef, bytecode::FunctionId};
 
 #[derive(Debug, Clone, Copy)]
 pub struct UserFunction(FunctionId);
@@ -105,7 +105,6 @@ impl<T: Object> IntoRet for Result<Option<T>, RuntimeError> {
 pub trait FromValue: Sized {
     fn from_value(value: &ValueRef) -> Result<Self, RuntimeError>;
 }
-
 
 impl<T> FromValue for T
 where

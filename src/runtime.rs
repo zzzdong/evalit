@@ -9,12 +9,11 @@ mod vm;
 
 use crate::bytecode::{Operand, Register};
 pub use environment::Environment;
+#[cfg(feature = "async")]
+pub use object::Promise;
 pub use object::{Callable, Enumerator, NativeFunction, Null, Object, Range};
 pub use value::{Value, ValueRef};
 pub use vm::VM;
-#[cfg(feature = "async")]
-pub use object::Promise;
-
 
 pub(crate) use object::{Immd, UserFunction};
 
@@ -123,10 +122,7 @@ impl std::fmt::Display for RuntimeError {
                 write!(f, "Invalid `{kind}` operation: {message}")
             }
             RuntimeError::InvalidType { expected, got } => {
-                write!(
-                    f,
-                    "Invalid type: expected type `{expected}`, got `{got}`"
-                )
+                write!(f, "Invalid type: expected type `{expected}`, got `{got}`")
             }
             RuntimeError::InvalidArgumentCount { expected, got } => {
                 write!(
@@ -148,10 +144,7 @@ impl std::fmt::Display for RuntimeError {
                 write!(f, "Symbol `{name}` not found")
             }
             RuntimeError::IndexOutOfBounds { index, length } => {
-                write!(
-                    f,
-                    "Index out of bounds: index `{index}`, length `{length}`"
-                )
+                write!(f, "Index out of bounds: index `{index}`, length `{length}`")
             }
             RuntimeError::KeyNotFound { key } => {
                 write!(f, "Key `{key}` not found")

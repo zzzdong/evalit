@@ -95,7 +95,7 @@ fn test_eval_control_flow() {
 
 #[test]
 fn test_eval_array() {
-    // init();
+    init_logger();
 
     let mut env = Environment::new();
 
@@ -217,7 +217,6 @@ fn test_eval_for() {
 
     println!("ret: {retval:?}");
     assert!(retval.is_ok());
-    
 }
 
 #[test]

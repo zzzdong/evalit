@@ -26,7 +26,6 @@ impl Module {
     }
 }
 
-
 #[derive(Debug, Clone)]
 pub struct Bytecode {
     pub opcode: Opcode,

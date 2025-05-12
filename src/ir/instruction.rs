@@ -293,6 +293,16 @@ impl Instruction {
         )
     }
 
+    pub fn is_call(&self) -> bool {
+        matches!(
+            self,
+            Instruction::Call { .. }
+                | Instruction::CallEx { .. }
+                | Instruction::CallNative { .. }
+                | Instruction::PropertyCall { .. }
+        )
+    }
+
     pub fn defined_and_used_vars(&self) -> (Vec<Value>, Vec<Value>) {
         match self {
             Instruction::LoadArg { dst, .. } => (vec![*dst], vec![]),
@@ -412,9 +422,9 @@ impl std::fmt::Display for Instruction {
                 args,
                 result: dst,
             } => {
-                write!(f, "{dst} = call {func}")?;
+                write!(f, "{dst} = call {func} ")?;
                 for arg in args {
-                    write!(f, " ,{arg}")?;
+                    write!(f, ", {arg}")?;
                 }
                 Ok(())
             }
@@ -425,7 +435,7 @@ impl std::fmt::Display for Instruction {
             } => {
                 write!(f, "{dst} = call_ex {callable}")?;
                 for arg in args {
-                    write!(f, " ,{arg}")?;
+                    write!(f, ", {arg}")?;
                 }
                 Ok(())
             }
@@ -436,7 +446,7 @@ impl std::fmt::Display for Instruction {
             } => {
                 write!(f, "{dst} = call_native {func}")?;
                 for arg in args {
-                    write!(f, " ,{arg}")?;
+                    write!(f, ", {arg}")?;
                 }
                 Ok(())
             }

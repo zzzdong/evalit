@@ -376,57 +376,58 @@ impl RegAlloc {
         self.liveness.stack_size()
     }
 
-    pub fn pre_allocate(&mut self, index: usize) -> Vec<Action> {
-        let mut actions = Vec::new();
+    pub fn alloc(&mut self, value: Value, index: usize) -> (Register, Option<Action>) {
+        trace!("allocating {}", value);
 
-        let need_preload = self
-            .liveness
-            .intervals
-            .values()
-            .filter(|interval| interval.ranges.iter().any(|range| range.start == index));
+        let interval = self.liveness.intervals.get(&value).unwrap();
 
-        for interval in need_preload {
-            trace!("preloading {}", interval.var);
-            match interval.reg {
+        match self.reg_set.find(value) {
+            Some(register) => (register, None),
+            None => match interval.reg {
                 Some(register) => {
-                    self.reg_set.use_register(register, interval.var, true);
+                    self.reg_set.use_register(register, value, true);
+                    (register, None)
                 }
                 None => {
-                    let register = self.reg_set.must_alloc(interval.var);
-                    let stack = interval.stack.unwrap();
+                    let reg = self.reg_set.must_alloc(value);
 
-                    actions.push(Action::Restore { stack, register });
+                    if interval
+                        .ranges
+                        .iter()
+                        .any(|range| range.start == index && interval.start != index)
+                    {
+                        let spill = Action::Restore {
+                            stack: interval.stack.unwrap(),
+                            register: reg,
+                        };
+
+                        return (reg, Some(spill));
+                    }
+
+                    (reg, None)
+                }
+            },
+        }
+    }
+
+    pub fn release(&mut self, value: Value, index: usize) -> Option<Action> {
+        trace!("releasing {}", value);
+
+        if !matches!(value, Value::Variable(_)) {
+            return None;
+        }
+
+        let interval = self.liveness.intervals.get(&value).unwrap();
+        if interval.ranges.iter().any(|range| range.end == index) {
+            if let Some(stack) = interval.stack {
+                if let Some(register) = self.reg_set.release(value) {
+                    let spill = Action::Spill { register, stack };
+                    return Some(spill);
                 }
             }
         }
 
-        actions
-    }
-
-    pub fn post_allocate(&mut self, index: usize) -> Vec<Action> {
-        let need_spill = self.liveness.intervals.values().filter(|interval| {
-            interval.reg.is_none() && interval.ranges.iter().any(|range| range.end == index)
-        });
-
-        let mut actions = Vec::new();
-
-        for interval in need_spill {
-            trace!("spilling {}", interval.var);
-
-            let register = self.reg_set.must_release(interval.var);
-            let stack = interval.stack.unwrap();
-
-            actions.push(Action::Spill { stack, register });
-        }
-
-        actions
-    }
-
-    pub fn alloc(&mut self, value: Value) -> Register {
-        // 由于所有的变量都在预处理时加载到寄存器，所以，可以直接拿到
-        self.reg_set
-            .find(value)
-            .unwrap_or_else(|| panic!("Can't find register for value({value})"))
+        None
     }
 
     pub fn arrange(&mut self, cfg: &ControlFlowGraph) {
@@ -464,10 +465,6 @@ impl RegAlloc {
             }
         }
 
-        for (i, group) in groups.iter().enumerate() {
-            trace!("Group[{i}]: {group:?}");
-        }
-
         // 2. 分配寄存器
         // 2.1 如果组数量不多于可用寄存器数量，则直接分配
         if groups.len() <= registers.len() {
@@ -482,27 +479,33 @@ impl RegAlloc {
         // 2.2 保留3个临时寄存器，其他的进行优先级分配
         let (_temp_regs, fixed_regs) = registers.split_at(3);
 
-        // 计算每个组的优先级（基于区间长度）
-        let mut groups_with_priority: Vec<(usize, Vec<LiveInterval>)> =
-            groups.into_iter().enumerate().collect();
+        // 排序
+        groups.sort_by(|a, b| {
+            // let a_len: usize = a.iter().map(|interval| interval.end - interval.start).sum();
+            // let b_len: usize = b.iter().map(|interval| interval.end - interval.start).sum();
+            // b_len.cmp(&a_len)
 
-        // 按优先级排序（区间长度降序）
-        groups_with_priority.sort_by(|(_, a), (_, b)| {
-            let a_len: usize = a.iter().map(|interval| interval.end - interval.start).sum();
-            let b_len: usize = b.iter().map(|interval| interval.end - interval.start).sum();
+            let a_len: usize = a.iter().map(|interval| interval.ranges.len()).sum();
+            let b_len: usize = b.iter().map(|interval| interval.ranges.len()).sum();
             b_len.cmp(&a_len)
         });
 
+        for (i, group) in groups.iter().enumerate() {
+            trace!("Group[{i}]: {group:?}");
+            // let vars = group.iter().map(|interval| interval.var).collect::<Vec<_>>();
+            // trace!("Group[{i}]: {vars:?}");
+        }
+
         // 2.2.1 分配固定寄存器
-        let (fixed_group, temp_group) = groups_with_priority.split_at(fixed_regs.len());
-        for ((_, group), reg) in fixed_group.iter().zip(fixed_regs) {
+        let (fixed_group, temp_group) = groups.split_at(fixed_regs.len());
+        for (group, reg) in fixed_group.iter().zip(fixed_regs) {
             for interval in group {
                 self.liveness.set_register(interval.var, *reg);
             }
         }
 
         // 2.2.2 分配临时寄存器，只分配栈上空间，不分配寄存器
-        for (i, (_, group)) in temp_group.iter().enumerate() {
+        for (i, group) in temp_group.iter().enumerate() {
             for interval in group {
                 self.liveness.set_stack(interval.var, i);
             }
@@ -545,14 +548,18 @@ impl RegisterSet {
         reg.register
     }
 
-    fn must_release(&mut self, value: Value) -> Register {
-        let reg = self
+    fn release(&mut self, value: Value) -> Option<Register> {
+        match self
             .registers
             .iter_mut()
             .find(|reg| reg.variable == Some(value))
-            .unwrap();
-        reg.variable = None;
-        reg.register
+        {
+            Some(reg) => {
+                reg.variable = None;
+                Some(reg.register)
+            }
+            None => None,
+        }
     }
 
     fn use_register(&mut self, register: Register, variable: Value, is_fixed: bool) {

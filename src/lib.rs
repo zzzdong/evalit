@@ -8,6 +8,6 @@ mod runtime;
 
 pub use error::Error;
 pub use interpreter::Interpreter;
-pub use runtime::{Environment, NativeFunction, Null, Object, RuntimeError, ValueRef, Value};
 #[cfg(feature = "async")]
 pub use runtime::Promise;
+pub use runtime::{Environment, NativeFunction, Null, Object, RuntimeError, Value, ValueRef};

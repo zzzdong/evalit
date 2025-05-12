@@ -376,7 +376,10 @@ fn test_eval_recursive_depth_exceeded() {
         "#;
 
     let result = Interpreter::eval_script(script, env);
-    assert!(matches!(result.err().unwrap(), evalit::Error::Runtime(RuntimeError::StackOverflow)));
+    assert!(matches!(
+        result.err().unwrap(),
+        evalit::Error::Runtime(RuntimeError::StackOverflow)
+    ));
 }
 
 #[test]

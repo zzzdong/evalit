@@ -1,4 +1,3 @@
-
 use crate::{Object, RuntimeError, Value};
 
 macro_rules! impl_object_for_integer {

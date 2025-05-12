@@ -44,7 +44,6 @@ impl Object for (ValueRef, ValueRef) {
     }
 }
 
-
 // impl Object for (ValueRef, ValueRef) {
 //     fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
 //         write!(f, "({:?}, {:?})", self.0, self.1)
