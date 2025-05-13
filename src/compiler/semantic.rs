@@ -409,7 +409,7 @@ impl SemanticAnalyzer {
                 }
 
                 match op {
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
                         if (!lhs.ty.is_numeric() || rhs.ty != lhs.ty)
                             && lhs.ty != Type::String
                             && lhs.ty != Type::Char
@@ -434,7 +434,7 @@ impl SemanticAnalyzer {
                 }
 
                 expr.ty = match op {
-                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Mod => {
+                    BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
                         lhs.ty.clone()
                     }
                     BinOp::LogicAnd | BinOp::LogicOr => Type::Boolean,

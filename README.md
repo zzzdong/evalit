@@ -107,6 +107,7 @@ let a = 1;
 | `[]` | index |
 | `.` | member |
 | `()` | call |
+| `..` | range |
 
 
 ## control flow

@@ -543,7 +543,7 @@ fn parse_infix(
             let object = Box::new(lhs?);
 
             let expr = Expression::Binary(BinaryExpression {
-                op: BinOp::Mod,
+                op: BinOp::Rem,
                 lhs: object.clone(),
                 rhs: value.clone(),
             });
@@ -1396,7 +1396,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Binary(binary) = expression.node {
-            assert_eq!(binary.op, BinOp::Mod);
+            assert_eq!(binary.op, BinOp::Rem);
             assert_eq!(
                 binary.lhs.node,
                 Expression::Literal(LiteralExpression::Integer(7))

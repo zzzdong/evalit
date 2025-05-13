@@ -804,7 +804,7 @@ impl Block {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuncParam {
     pub name: Name,
 }
@@ -815,7 +815,7 @@ impl FuncParam {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuncSignature {
     pub name: Name,
     pub params: Vec<FuncParam>,
@@ -886,6 +886,11 @@ impl IrUnit {
     }
 
     pub fn declare_function(&mut self, signature: FuncSignature) -> FunctionId {
+        // maybe exists
+        if let Some(id) = self.functions.iter().position(|f| f.signature == signature) {
+            return FunctionId::new(id as u32);
+        }
+
         let id = FunctionId::new(self.functions.len() as u32);
         self.functions.push(IrFunction::new(id, signature));
         id

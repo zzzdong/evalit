@@ -3,7 +3,7 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use crate::{
     Environment, Error,
     ast::*,
-    bytecode::{Opcode, Primitive},
+    bytecode::{FunctionId, Opcode, Primitive},
     ir::{builder::*, instruction::*},
 };
 
@@ -18,6 +18,16 @@ pub fn lowering(ast: Program, env: &Environment) -> Result<IrUnit, Error> {
     let mut ast_lower = ASTLower::new(builder, SymbolTable::new(), env);
 
     let mut stmts = Vec::new();
+
+    // declare functions
+    for stmt in &ast.stmts {
+        match &stmt.node {
+            Statement::Item(ItemStatement::Fn(func)) => {
+                ast_lower.declare_function(&func);
+            }
+            _ => {}
+        }
+    }
 
     // split program into statements and items
     for stmt in ast.stmts {
@@ -138,7 +148,7 @@ impl<'a> ASTLower<'a> {
             self.builder.assign(dst, value);
         }
 
-        self.symbols.declare(&name, Variable::new(dst));
+        self.symbols.define(&name, Variable::new(dst));
     }
 
     fn lower_item_stmt(&mut self, item: ItemStatement) {
@@ -185,7 +195,7 @@ impl<'a> ASTLower<'a> {
             Pattern::Identifier(ident) => {
                 let dst = self.builder.alloc();
                 self.builder.assign(dst, value);
-                self.symbols.declare(&ident, Variable::new(dst));
+                self.symbols.define(&ident, Variable::new(dst));
             }
 
             Pattern::Tuple(pats) => {
@@ -320,7 +330,7 @@ impl<'a> ASTLower<'a> {
         } = fn_item;
 
         let value = self.lower_function(Some(name.to_string()), params, body);
-        self.symbols.declare(name, Variable::new(value));
+        self.symbols.define(name, Variable::new(value));
         value
     }
 
@@ -358,7 +368,7 @@ impl<'a> ASTLower<'a> {
 
             func_lower
                 .symbols
-                .declare(param.name.as_str(), Variable::new(arg));
+                .define(param.name.as_str(), Variable::new(arg));
         }
 
         func_lower.lower_block(body);
@@ -600,7 +610,7 @@ impl<'a> ASTLower<'a> {
             BinOp::Sub => self.builder.binop(Opcode::Subx, lhs, rhs),
             BinOp::Mul => self.builder.binop(Opcode::Mulx, lhs, rhs),
             BinOp::Div => self.builder.binop(Opcode::Divx, lhs, rhs),
-            BinOp::Mod => self.builder.binop(Opcode::Remx, lhs, rhs),
+            BinOp::Rem => self.builder.binop(Opcode::Remx, lhs, rhs),
 
             BinOp::Equal => self.builder.binop(Opcode::Equal, lhs, rhs),
             BinOp::NotEqual => self.builder.binop(Opcode::NotEqual, lhs, rhs),
@@ -620,6 +630,19 @@ impl<'a> ASTLower<'a> {
 
             _ => unimplemented!("{:?}", op),
         }
+    }
+
+    fn declare_function(&mut self, func: &FunctionItem) -> FunctionId {
+        let FunctionItem { name, params, .. } = func;
+
+        let func_sig = FuncSignature::new(
+            name.clone(),
+            params
+                .iter()
+                .map(|p| FuncParam::new(p.name.clone()))
+                .collect(),
+        );
+        self.builder.module_mut().declare_function(func_sig.clone())
     }
 
     fn create_block(&mut self, label: impl Into<Name>) -> BlockId {
@@ -677,6 +700,10 @@ impl SymbolTable {
     }
 
     fn declare(&mut self, name: impl Into<String>, value: Variable) {
+        self.0.borrow_mut().symbols.insert(name.into(), value);
+    }
+
+    fn define(&mut self, name: impl Into<String>, value: Variable) {
         self.0.borrow_mut().symbols.insert(name.into(), value);
     }
 

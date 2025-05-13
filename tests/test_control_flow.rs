@@ -1,5 +1,5 @@
 mod utils;
-use evalit::{Environment, Interpreter, ValueRef};
+use evalit::{Environment, Interpreter};
 use utils::init_logger;
 
 #[test]
