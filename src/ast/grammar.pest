@@ -205,7 +205,7 @@ infix_operator = _{
   | sub_assign_operator
   | mul_assign_operator
   | div_assign_operator
-  | mod_assign_operator
+  | rem_assign_operator
   | not_equal_operator
   | less_equal_operator
   | greater_equal_operator
@@ -214,7 +214,7 @@ infix_operator = _{
   | sub_operator
   | mul_operator
   | div_operator
-  | mod_operator
+  | rem_operator
   | pow_operator
   | range_operator
   | and_operator
@@ -287,8 +287,8 @@ mul_operator = { "*" }
 /// A div operator.
 div_operator = { "/" }
 
-/// A mod operator.
-mod_operator = { "%" }
+/// A rem operator.
+rem_operator = { "%" }
 
 /// A pow operator.
 pow_operator = { "^" }
@@ -339,7 +339,7 @@ mul_assign_operator = { "*=" }
 div_assign_operator = { "/=" }
 
 /// A mod assign operator.
-mod_assign_operator = { "%=" }
+rem_assign_operator = { "%=" }
 
 /// A comma terminal.
 comma = { "," }

@@ -82,4 +82,64 @@ where
             ValueRef::new((ValueRef::new(k.clone()), v.clone()))
         })))
     }
+
+    fn property_call(
+        &mut self,
+        member: &str,
+        args: &[ValueRef],
+    ) -> Result<Option<Value>, RuntimeError> {
+        match member {
+            "len" => Ok(Some(Value::new(self.len() as i64))),
+            "insert" => {
+                if args.len() == 2 {
+                    match args[0].downcast_ref::<K>() {
+                        Some(key) => {
+                            self.insert(key.clone(), args[1].clone());
+                            return Ok(None);
+                        }
+                        None => {
+                            return Err(RuntimeError::invalid_type::<K>(
+                                "insert() argument 1 must be a key".to_string(),
+                            ));
+                        }
+                    };
+                }
+                Err(RuntimeError::invalid_argument_count(1, args.len()))
+            }
+            "remove" => {
+                if args.len() == 1 {
+                    match args[0].downcast_ref::<K>() {
+                        Some(key) => {
+                            self.remove(&key);
+                            return Ok(None);
+                        }
+                        None => {
+                            return Err(RuntimeError::invalid_type::<K>(
+                                "insert() argument 1 must be a key".to_string(),
+                            ));
+                        }
+                    };
+                }
+
+                Err(RuntimeError::invalid_argument_count(1, args.len()))
+            }
+            "keys" => {
+                if args.len() == 0 {
+                    let keys = self.keys().map(|key| key.clone()).collect::<Vec<_>>();
+                    return Ok(Some(Value::new(keys)));
+                }
+
+                Err(RuntimeError::invalid_argument_count(0, args.len()))
+            }
+            "values" => {
+                if args.len() == 0 {
+                    let values = self.values().map(|value| value.clone()).collect::<Vec<_>>();
+                    return Ok(Some(Value::new(values)));
+                }
+
+                Err(RuntimeError::invalid_argument_count(0, args.len()))
+            }
+            _ => Ok(None),
+        }
+    }
 }

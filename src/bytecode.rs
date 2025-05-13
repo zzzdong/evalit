@@ -26,7 +26,7 @@ impl Module {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Bytecode {
     pub opcode: Opcode,
     pub operands: [Operand; 4],
@@ -141,8 +141,8 @@ pub enum Opcode {
     Mulx,
     /// divx dst, src1, src2 (object division)
     Divx,
-    /// modx dst, src1, src2 (object modulo)
-    Modx,
+    /// remx dst, src1, src2 (object remainder)
+    Remx,
     /// and dst, src1, src2
     And,
     /// or dst, src1, src2
@@ -231,7 +231,7 @@ impl fmt::Display for Opcode {
             Opcode::Subx => write!(f, "subx"),
             Opcode::Mulx => write!(f, "mulx"),
             Opcode::Divx => write!(f, "divx"),
-            Opcode::Modx => write!(f, "modx"),
+            Opcode::Remx => write!(f, "remx"),
             Opcode::And => write!(f, "and"),
             Opcode::Or => write!(f, "or"),
             Opcode::Less => write!(f, "lt"),

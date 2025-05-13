@@ -2,6 +2,7 @@ use std::collections::HashMap;
 
 use super::{Callable, NativeFunction, ValueRef};
 
+#[derive(Debug, Clone)]
 pub struct Environment {
     pub(crate) symbols: HashMap<String, ValueRef>,
 }

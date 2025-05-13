@@ -73,7 +73,7 @@ fn pratt_parser() -> &'static PrattParser<Rule> {
                 | Op::infix(Rule::sub_assign_operator, Assoc::Right)
                 | Op::infix(Rule::mul_assign_operator, Assoc::Right)
                 | Op::infix(Rule::div_assign_operator, Assoc::Right)
-                | Op::infix(Rule::mod_assign_operator, Assoc::Right))
+                | Op::infix(Rule::rem_assign_operator, Assoc::Right))
             .op(Op::infix(Rule::range_operator, Assoc::Left))
             .op(Op::infix(Rule::or_operator, Assoc::Left))
             .op(Op::infix(Rule::and_operator, Assoc::Left))
@@ -87,7 +87,7 @@ fn pratt_parser() -> &'static PrattParser<Rule> {
                 | Op::infix(Rule::sub_operator, Assoc::Left))
             .op(Op::infix(Rule::mul_operator, Assoc::Left)
                 | Op::infix(Rule::div_operator, Assoc::Left)
-                | Op::infix(Rule::mod_operator, Assoc::Left))
+                | Op::infix(Rule::rem_operator, Assoc::Left))
             .op(Op::infix(Rule::pow_operator, Assoc::Right))
             .op(Op::prefix(Rule::negative_operator) | Op::prefix(Rule::not_operator))
             .op(Op::postfix(Rule::try_operator))
@@ -538,7 +538,7 @@ fn parse_infix(
                 value: Box::new(node),
             })
         }
-        Rule::mod_assign_operator => {
+        Rule::rem_assign_operator => {
             let value = Box::new(rhs?);
             let object = Box::new(lhs?);
 

@@ -5,6 +5,14 @@ impl Object for bool {
         write!(f, "{self}")
     }
 
+    fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
+        if let Some(other) = other.downcast_ref::<bool>() {
+            return Ok(Value::new(*self == *other));
+        }
+
+        Ok(Value::new(false))
+    }
+
     fn compare(&self, other: &Value) -> Result<std::cmp::Ordering, RuntimeError> {
         if let Some(other) = other.downcast_ref::<bool>() {
             return Ok(self.cmp(other));

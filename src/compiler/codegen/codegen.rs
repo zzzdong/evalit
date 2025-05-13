@@ -158,7 +158,7 @@ impl Codegen {
                             let src1 = self.gen_operand(begin);
                             let dst = self.gen_operand(result);
                             self.codes
-                                .push(Bytecode::double(Opcode::RangeTo, dst, src1));
+                                .push(Bytecode::double(Opcode::RangeFrom, dst, src1));
                         }
                         (None, Some(end)) => {
                             let src1 = self.gen_operand(end);

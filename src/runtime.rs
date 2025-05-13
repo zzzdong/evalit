@@ -13,7 +13,7 @@ pub use environment::Environment;
 pub use object::Promise;
 pub use object::{Callable, Enumerator, NativeFunction, Null, Object, Range};
 pub use value::{Value, ValueRef};
-pub use vm::VM;
+pub use vm::{Program, VM};
 
 pub(crate) use object::{Immd, UserFunction};
 

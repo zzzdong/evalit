@@ -67,10 +67,10 @@ pub trait Object: std::any::Any + std::fmt::Debug {
         ))
     }
 
-    /// arithmetic modulo operation
-    fn modulo(&self, other: &Value) -> Result<Value, RuntimeError> {
+    /// arithmetic remainder operation
+    fn rem(&self, other: &Value) -> Result<Value, RuntimeError> {
         Err(RuntimeError::invalid_operation(
-            OperateKind::Modulo,
+            OperateKind::Remainder,
             format!("lhs: {self:?}, rhs: {other:?}"),
         ))
     }
@@ -79,6 +79,13 @@ pub trait Object: std::any::Any + std::fmt::Debug {
     fn pow(&self, other: &Value) -> Result<Value, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::Power,
+            format!("lhs: {self:?}, rhs: {other:?}"),
+        ))
+    }
+
+    fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
+        Err(RuntimeError::invalid_operation(
+            OperateKind::Equal,
             format!("lhs: {self:?}, rhs: {other:?}"),
         ))
     }
@@ -206,8 +213,9 @@ pub enum OperateKind {
     Subtract,
     Multiply,
     Divide,
-    Modulo,
+    Remainder,
     Power,
+    Equal,
     Compare,
     LogicAnd,
     LogicOr,
@@ -235,8 +243,9 @@ impl fmt::Display for OperateKind {
             OperateKind::Subtract => write!(f, "subtract"),
             OperateKind::Multiply => write!(f, "multiply"),
             OperateKind::Divide => write!(f, "divide"),
-            OperateKind::Modulo => write!(f, "modulo"),
+            OperateKind::Remainder => write!(f, "reminder"),
             OperateKind::Power => write!(f, "power"),
+            OperateKind::Equal => write!(f, "equal"),
             OperateKind::Compare => write!(f, "compare"),
             OperateKind::LogicAnd => write!(f, "logic_and"),
             OperateKind::LogicOr => write!(f, "logic_or"),

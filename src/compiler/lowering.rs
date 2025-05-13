@@ -109,6 +109,9 @@ impl<'a> ASTLower<'a> {
             Statement::Loop(loop_stmt) => {
                 self.lower_loop_stmt(loop_stmt);
             }
+            Statement::While(while_stmt) => {
+                self.lower_while_stmt(while_stmt);
+            }
             Statement::For(for_stmt) => {
                 self.lower_for_stmt(for_stmt);
             }
@@ -118,8 +121,10 @@ impl<'a> ASTLower<'a> {
             Statement::Continue => {
                 self.lower_continue_stmt();
             }
-
-            _ => unimplemented!("{:?}", statement),
+            Statement::Block(block_stmt) => {
+                self.lower_block(block_stmt);
+            }
+            Statement::Empty => {} // _ => unimplemented!("{:?}", statement),
         }
     }
 
@@ -256,12 +261,39 @@ impl<'a> ASTLower<'a> {
 
         self.lower_block(body);
 
-        self.symbols = old_symbols;
-
         self.builder.br(loop_body);
 
         // done loop
         self.level_loop_context();
+        self.symbols = old_symbols;
+        self.builder.switch_to_block(after_blk);
+    }
+
+    fn lower_while_stmt(&mut self, while_stmt: WhileStatement) {
+        let WhileStatement { condition, body } = while_stmt;
+
+        let cond_blk = self.create_block("while_condition");
+        let body_blk = self.create_block("while_body");
+        let after_blk = self.create_block(None);
+
+        self.enter_loop_context(after_blk, body_blk);
+
+        self.builder.br(cond_blk);
+        self.builder.switch_to_block(cond_blk);
+
+        let cond = self.lower_expression(condition);
+        self.builder.br_if(cond, body_blk, after_blk);
+
+        self.builder.switch_to_block(body_blk);
+        let new_symbols = self.symbols.new_scope();
+        let old_symbols = std::mem::replace(&mut self.symbols, new_symbols);
+
+        self.lower_block(body);
+
+        self.builder.br(cond_blk);
+
+        self.level_loop_context();
+        self.symbols = old_symbols;
         self.builder.switch_to_block(after_blk);
     }
 
@@ -568,7 +600,7 @@ impl<'a> ASTLower<'a> {
             BinOp::Sub => self.builder.binop(Opcode::Subx, lhs, rhs),
             BinOp::Mul => self.builder.binop(Opcode::Mulx, lhs, rhs),
             BinOp::Div => self.builder.binop(Opcode::Divx, lhs, rhs),
-            BinOp::Mod => self.builder.binop(Opcode::Modx, lhs, rhs),
+            BinOp::Mod => self.builder.binop(Opcode::Remx, lhs, rhs),
 
             BinOp::Equal => self.builder.binop(Opcode::Equal, lhs, rhs),
             BinOp::NotEqual => self.builder.binop(Opcode::NotEqual, lhs, rhs),

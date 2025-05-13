@@ -7,16 +7,16 @@ impl Object for String {
         write!(f, "\"{self}\"")
     }
 
-    fn compare(&self, other: &Value) -> Result<std::cmp::Ordering, RuntimeError> {
+    fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
         if let Some(other) = other.downcast_ref::<String>() {
-            return Ok(self.cmp(other));
+            return Ok(Value::new(self == other));
         }
 
         if let Some(other) = other.downcast_ref::<&str>() {
-            return Ok(self.as_str().cmp(other));
+            return Ok(Value::new(self == other));
         }
 
-        Err(RuntimeError::invalid_type::<String>(other))
+        Ok(Value::new(false))
     }
 
     fn add(&self, other: &Value) -> Result<Value, RuntimeError> {
@@ -82,16 +82,16 @@ impl Object for &'static str {
         write!(f, "\"{self}\"")
     }
 
-    fn compare(&self, other: &Value) -> Result<std::cmp::Ordering, RuntimeError> {
-        if let Some(other) = other.downcast_ref::<&str>() {
-            return Ok(self.cmp(other));
-        }
-
+    fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
         if let Some(other) = other.downcast_ref::<String>() {
-            return Ok(self.cmp(&other.as_str()));
+            return Ok(Value::new(self == other));
         }
 
-        Err(RuntimeError::invalid_type::<String>(other))
+        if let Some(other) = other.downcast_ref::<&str>() {
+            return Ok(Value::new(self == other));
+        }
+
+        Ok(Value::new(false))
     }
 }
 

@@ -167,6 +167,42 @@ impl Object for Vec<ValueRef> {
                     .collect::<Vec<(ValueRef, ValueRef)>>();
                 Ok(Some(Value::new(i)))
             }
+            "push" => {
+                if args.len() == 1 {
+                    self.push(args[0].clone());
+                    return Ok(None);
+                }
+                Err(RuntimeError::invalid_argument_count(1, args.len()))
+            }
+            "pop" => {
+                if args.is_empty() {
+                    if let Some(item) = self.pop() {
+                        return Ok(Some(item.take()));
+                    }
+                    return Ok(None);
+                }
+                Err(RuntimeError::invalid_argument_count(0, args.len()))
+            }
+            "remove" => {
+                if args.len() == 1 {
+                    if let Some(index) = args[0].downcast_ref::<i64>() {
+                        if *index >= 0 && *index < self.len() as i64 {
+                            let removed = self.remove(*index as usize);
+                            return Ok(Some(removed.take()));
+                        }
+                        return Err(RuntimeError::IndexOutOfBounds {
+                            length: self.len() as i64,
+                            index: *index,
+                        });
+                    }
+                    return Err(RuntimeError::invalid_argument::<i64>(
+                        0,
+                        format!("cannot remove with {:?}", args[0]),
+                    ));
+                }
+
+                Err(RuntimeError::invalid_argument_count(1, args.len()))
+            }
             _ => Ok(None),
         }
     }
