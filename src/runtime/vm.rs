@@ -68,7 +68,6 @@ impl<'a> VM<'a> {
             debug!("{}: {:?}", i, inst);
         }
 
-
         while let Some(inst) = self.program.instructions.get(self.state.pc) {
             debug!("{}", self.state);
             debug!("{inst:?}");
@@ -279,7 +278,7 @@ impl<'a> VM<'a> {
                     let arg = self.get_value(Operand::Stack(-(i as isize + 1)))?;
                     args.push(arg);
                 }
-                let ret = object.borrow_mut().property_call(&prop, &args)?;
+                let ret = object.borrow_mut().method_call(&prop, &args)?;
                 let ret = ret.unwrap_or(Value::null());
                 self.state.set_register(Register::RV, ValueRef::from(ret))?;
             }
@@ -497,8 +496,15 @@ impl<'a> VM<'a> {
 
             Opcode::MakeIter => {
                 let obj = self.get_value(operands[1])?;
-                let iterator = obj.borrow().make_iterator()?;
-                self.set_value(operands[0], ValueRef::new(Enumerator::new(iterator)))?;
+                match obj.downcast_ref::<Enumerator>() {
+                    Some(_) => {
+                        self.set_value(operands[0], obj.clone())?;
+                    }
+                    None => {
+                        let iterator = obj.borrow().make_iterator()?;
+                        self.set_value(operands[0], ValueRef::new(Enumerator::new(iterator)))?;
+                    }
+                }
             }
 
             Opcode::IterHasNext => {

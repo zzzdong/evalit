@@ -83,13 +83,17 @@ where
         })))
     }
 
-    fn property_call(
+    fn method_call(
         &mut self,
-        member: &str,
+        method: &str,
         args: &[ValueRef],
     ) -> Result<Option<Value>, RuntimeError> {
-        match member {
+        match method {
             "len" => Ok(Some(Value::new(self.len() as i64))),
+            "clear" => {
+                self.clear();
+                Ok(None)
+            }
             "insert" => {
                 if args.len() == 2 {
                     match args[0].downcast_ref::<K>() {

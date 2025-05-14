@@ -65,6 +65,44 @@ impl Object for f32 {
     fn negate(&self) -> Result<Value, RuntimeError> {
         Ok(Value::new(-self))
     }
+
+    fn method_call(
+        &mut self,
+        method: &str,
+        args: &[crate::ValueRef],
+    ) -> Result<Option<Value>, RuntimeError> {
+        match method {
+            "to_string" => Ok(Some(Value::new(self.to_string()))),
+            "to_int" => Ok(Some(Value::new(*self as i64))),
+            "abs" => Ok(Some(Value::new(self.abs()))),
+            "round" => Ok(Some(Value::new(self.round()))),
+            "floor" => Ok(Some(Value::new(self.floor()))),
+            "ceil" => Ok(Some(Value::new(self.ceil()))),
+            "trunc" => Ok(Some(Value::new(self.trunc()))),
+            "sqrt" => Ok(Some(Value::new(self.sqrt()))),
+            "sin" => Ok(Some(Value::new(self.sin()))),
+            "cos" => Ok(Some(Value::new(self.cos()))),
+            "tan" => Ok(Some(Value::new(self.tan()))),
+            "asin" => Ok(Some(Value::new(self.asin()))),
+            "acos" => Ok(Some(Value::new(self.acos()))),
+            "atan" => Ok(Some(Value::new(self.atan()))),
+            "log" => {
+                if args.len() == 1 {
+                    match args[0].downcast_ref::<f32>() {
+                        Some(base) => Ok(Some(Value::new(self.log(*base)))),
+                        None => Err(RuntimeError::invalid_argument::<f32>(0, &args[0])),
+                    }
+                } else {
+                    Err(RuntimeError::invalid_argument_count(1, args.len()))
+                }
+            }
+
+            _ => Err(RuntimeError::invalid_operation(
+                super::OperateKind::PropertyCall,
+                format!("Unknown method: {}", method),
+            )),
+        }
+    }
 }
 
 impl Object for f64 {
@@ -118,6 +156,43 @@ impl Object for f64 {
 
     fn negate(&self) -> Result<Value, RuntimeError> {
         Ok(Value::new(-self))
+    }
+
+    fn method_call(
+        &mut self,
+        method: &str,
+        args: &[crate::ValueRef],
+    ) -> Result<Option<Value>, RuntimeError> {
+        match method {
+            "to_string" => Ok(Some(Value::new(self.to_string()))),
+            "to_int" => Ok(Some(Value::new(*self as i64))),
+            "abs" => Ok(Some(Value::new(self.abs()))),
+            "round" => Ok(Some(Value::new(self.round()))),
+            "floor" => Ok(Some(Value::new(self.floor()))),
+            "ceil" => Ok(Some(Value::new(self.ceil()))),
+            "trunc" => Ok(Some(Value::new(self.trunc()))),
+            "sqrt" => Ok(Some(Value::new(self.sqrt()))),
+            "sin" => Ok(Some(Value::new(self.sin()))),
+            "cos" => Ok(Some(Value::new(self.cos()))),
+            "tan" => Ok(Some(Value::new(self.tan()))),
+            "asin" => Ok(Some(Value::new(self.asin()))),
+            "acos" => Ok(Some(Value::new(self.acos()))),
+            "atan" => Ok(Some(Value::new(self.atan()))),
+            "log" => {
+                if args.len() == 1 {
+                    match args[0].downcast_ref::<f64>() {
+                        Some(base) => Ok(Some(Value::new(self.log(*base)))),
+                        None => Err(RuntimeError::invalid_argument::<f64>(0, &args[0])),
+                    }
+                } else {
+                    Err(RuntimeError::invalid_argument_count(1, args.len()))
+                }
+            }
+            _ => Err(RuntimeError::invalid_operation(
+                super::OperateKind::PropertyCall,
+                format!("Unknown method: {}", method),
+            )),
+        }
     }
 }
 

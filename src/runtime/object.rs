@@ -10,6 +10,7 @@ mod null;
 mod range;
 mod string;
 mod tuple;
+mod metatable;
 
 #[cfg(feature = "async")]
 mod promise;
@@ -17,13 +18,14 @@ mod promise;
 pub use emurator::Enumerator;
 pub use function::{Callable, NativeFunction, UserFunction};
 pub use immd::Immd;
+use metatable::MetaTable;
 pub use null::Null;
 pub use range::Range;
 
 #[cfg(feature = "async")]
 pub use promise::Promise;
 
-use std::fmt;
+use std::{any::type_name_of_val, fmt};
 
 #[cfg(feature = "async")]
 use futures::Future;
@@ -71,14 +73,6 @@ pub trait Object: std::any::Any + std::fmt::Debug {
     fn rem(&self, other: &Value) -> Result<Value, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::Remainder,
-            format!("lhs: {self:?}, rhs: {other:?}"),
-        ))
-    }
-
-    /// arithmetic power operation
-    fn pow(&self, other: &Value) -> Result<Value, RuntimeError> {
-        Err(RuntimeError::invalid_operation(
-            OperateKind::Power,
             format!("lhs: {self:?}, rhs: {other:?}"),
         ))
     }
@@ -144,29 +138,29 @@ pub trait Object: std::any::Any + std::fmt::Debug {
         ))
     }
 
-    fn property_get(&self, member: &str) -> Result<ValueRef, RuntimeError> {
+    fn property_get(&self, property: &str) -> Result<Value, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::PropertyGet,
             "unimplemented",
         ))
     }
 
-    fn property_set(&mut self, member: &str, value: ValueRef) -> Result<(), RuntimeError> {
+    fn property_set(&mut self, property: &str, value: ValueRef) -> Result<(), RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::PropertySet,
             "unimplemented",
         ))
     }
 
-    fn property_call(
+    fn method_call(
         &mut self,
-        member: &str,
+        method: &str,
         args: &[ValueRef],
     ) -> Result<Option<Value>, RuntimeError> {
-        Err(RuntimeError::invalid_operation(
-            OperateKind::PropertyCall,
-            format!("unimplemented {member} property call for {self:?}"),
-        ))
+        Err(RuntimeError::MissingMethod {
+            object: type_name_of_val(self).to_string(),
+            method: method.to_string(),
+        })
     }
 
     fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
@@ -214,7 +208,6 @@ pub enum OperateKind {
     Multiply,
     Divide,
     Remainder,
-    Power,
     Equal,
     Compare,
     LogicAnd,
@@ -244,7 +237,6 @@ impl fmt::Display for OperateKind {
             OperateKind::Multiply => write!(f, "multiply"),
             OperateKind::Divide => write!(f, "divide"),
             OperateKind::Remainder => write!(f, "reminder"),
-            OperateKind::Power => write!(f, "power"),
             OperateKind::Equal => write!(f, "equal"),
             OperateKind::Compare => write!(f, "compare"),
             OperateKind::LogicAnd => write!(f, "logic_and"),
@@ -268,17 +260,6 @@ impl fmt::Display for OperateKind {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use crate::runtime::{Value, ValueRef};
 
-    #[test]
-    fn test_null() {
-        let a = ValueRef::new(1_i64);
-        let b = Value::new(2_i64);
 
-        let c = a.borrow().add(&b);
 
-        assert_eq!(c.unwrap(), 3);
-    }
-}
