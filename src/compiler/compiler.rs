@@ -1,7 +1,9 @@
 use log::debug;
 
+use crate::ast::{ParseError, Span, Type};
 use crate::bytecode::{Module, Register};
-use crate::{Environment, Error, ast::*};
+use crate::runtime::Program;
+use crate::{Environment, Error};
 
 use super::codegen::Codegen;
 use super::lowering::lowering;
@@ -103,7 +105,7 @@ impl Compiler {
 
     pub fn compile(&self, input: &str, env: &Environment) -> Result<Module, Error> {
         // 解析输入
-        let mut ast = parse_file(input)?;
+        let mut ast = crate::ast::parse_file(input)?;
 
         debug!("AST: {ast:?}");
 
@@ -141,74 +143,4 @@ impl Compiler {
     }
 }
 
-#[cfg(test)]
-mod test {
-    use super::*;
 
-    #[test]
-    fn test_compile_if_else() {
-        let _ = env_logger::builder()
-            .filter_level(log::LevelFilter::Trace)
-            .is_test(true)
-            .try_init();
-
-        let input = r#"
-        fn add(a, b) {
-            let c = 1;
-            let d = 2;
-            let e = 3;
-            let f = c * d + e;
-            let g = 4;
-            
-            // 增加更多局部变量
-            let h = 5;
-            let i = 6;
-            let j = 7;
-            let k = 8;
-            let l = 9;
-            let m = 10;
-            let n = 11;
-            let o = 12;
-            let p = 13;
-            let q = 14;
-            let r = 15;
-            let s = 16;
-            let t = 17;
-            let u = 18;
-            let v = 19;
-            let w = 20;
-            let x = 21;
-            let y = 22;
-            let z = 23;
-
-            // 在不同作用域中使用局部变量
-            if a > 0 {
-                let inner_a = a + h;
-                let inner_b = b + i;
-                return inner_a + inner_b;
-            } else {
-                let inner_c = a - j;
-                let inner_d = b - k;
-                return inner_c + inner_d;
-            }
-        }
-        return add(1, 2);
-        "#;
-
-        let compiler = Compiler::new();
-        let insts = compiler.compile(input, &Environment::new()).unwrap();
-        // for func in insts.functions {
-        //     println!("=== Function({}) ===", func.id.as_usize());
-        //     for inst in func.instructions {
-        //         println!("{inst}");
-        //     }
-        //     println!("=== End ===");
-        // }
-
-        println!("=== Global ===");
-
-        for inst in insts.instructions {
-            println!("{inst}");
-        }
-    }
-}

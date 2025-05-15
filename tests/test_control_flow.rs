@@ -227,3 +227,90 @@ fn test_return_statement() {
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
+
+#[test]
+fn test_eval_control_flow() {
+    init_logger();
+
+    let env = Environment::new();
+
+    let script = r#"
+    let sum = 0;
+    for i in 0..=10 {
+        if i % 2 == 0 {
+            continue;
+        }
+        sum += i;
+
+        if i == 5 {
+            break;
+        }
+    }
+    
+    // 验证sum的值是否符合预期（1+3+5）
+    if sum != 9 {
+        return false;
+    }
+    
+    return true;
+    "#;
+
+    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+
+    assert_eq!(retval, true);
+}
+
+#[test]
+fn test_eval_for() {
+    init_logger();
+
+    let env = Environment::new();
+
+    let script = r#"
+    // 测试数组迭代
+    let arr = [1, 2, 3, 4, 5];
+    let sum = 0;
+    for ele in arr {
+        sum += ele;
+    }
+    
+    // 验证数组迭代求和结果
+    if sum != 15 {
+        return false;
+    }
+    
+    // 测试带索引的数组迭代
+    let index_sum = 0;
+    let value_sum = 0;
+    for (i, ele) in arr.iter().enumerate() {
+        index_sum += i;
+        value_sum += ele;
+    }
+    
+    // 验证索引和元素迭代的正确性
+    if index_sum != 0+1+2+3+4 || value_sum != 15 {
+        return false;
+    }
+    
+    // 测试map迭代
+    let map = {"a": 1, "b": 2, "c": 3, "d": 4, "e": 5};
+    let key_sum = 0;
+    let value_sum = 0;
+    for (k, v) in map {
+        // 这里只是验证迭代可以进行
+        key_sum = key_sum + 1; // 计数key的数量
+        value_sum += v;
+    }
+    
+    // 验证map迭代结果
+    if key_sum != 5 || value_sum != 15 {
+        return false;
+    }
+    
+    return true;
+    "#;
+
+    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+
+    assert_eq!(retval, true);
+}

@@ -697,10 +697,6 @@ impl SymbolTable {
         None
     }
 
-    fn declare(&mut self, name: impl Into<String>, value: Variable) {
-        self.0.borrow_mut().symbols.insert(name.into(), value);
-    }
-
     fn define(&mut self, name: impl Into<String>, value: Variable) {
         self.0.borrow_mut().symbols.insert(name.into(), value);
     }

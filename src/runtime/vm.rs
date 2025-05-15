@@ -1,6 +1,7 @@
 use std::{
     collections::HashMap,
     fmt::{self},
+    sync::Arc,
 };
 
 use log::debug;
@@ -11,7 +12,7 @@ use super::{
     Enumerator, Environment, NativeFunction, Object, Range, RuntimeError, UserFunction, Value,
     value::ValueRef,
 };
-use crate::bytecode::{Bytecode, FunctionId, Module, Opcode, Operand, Register};
+use crate::bytecode::{Bytecode, Constant, FunctionId, Module, Opcode, Operand, Register};
 
 const STACK_MAX: usize = 0x0FFF;
 
@@ -31,7 +32,7 @@ impl Program {
             ..
         } = module;
 
-        let constants = constants.into_iter().map(ValueRef::from_constant).collect();
+        let constants = constants.iter().map(ValueRef::from_constant).collect();
 
         Self {
             constants,
@@ -44,12 +45,12 @@ impl Program {
 #[derive(Debug)]
 pub struct VM<'a> {
     state: State,
-    program: &'a Program,
+    program: &'a Module,
     env: &'a Environment,
 }
 
 impl<'a> VM<'a> {
-    pub fn new(program: &'a Program, env: &'a Environment) -> Self {
+    pub fn new(program: &'a Module, env: &'a Environment) -> Self {
         Self {
             state: State::new(),
             program,
@@ -415,24 +416,23 @@ impl<'a> VM<'a> {
 
             Opcode::LoadConst => {
                 let const_index = operands[1].as_immd();
-                let value = self.program.constants[const_index as usize].clone();
+                let value = ValueRef::from_constant(&self.program.constants[const_index as usize]);
                 self.set_value(operands[0], value)?;
             }
 
             Opcode::LoadEnv => {
                 let name = operands[1].as_immd();
-                let name = self.program.constants[name as usize].clone();
-                let name = name
-                    .downcast_ref::<String>()
-                    .ok_or(RuntimeError::invalid_type::<String>(&name))?;
-                match self.env.get(name.as_str()) {
-                    Some(value) => {
-                        self.set_value(operands[0], value.clone())?;
+                let name = &self.program.constants[name as usize];
+                match name {
+                    Constant::String(_) => {
+                        let value = ValueRef::from_constant(name);
+                        self.set_value(operands[0], value)?;
                     }
-                    None => {
-                        return Err(RuntimeError::symbol_not_found(name.as_str()));
+                    _ => {
+                        return Err(RuntimeError::internal("invalid constant type"));
                     }
-                }
+                };
+                return Ok(());
             }
 
             Opcode::Br => {
@@ -603,13 +603,15 @@ impl<'a> VM<'a> {
         }
     }
 
-    fn load_string(&self, operand: Operand) -> Result<String, RuntimeError> {
+    fn load_string(&self, operand: Operand) -> Result<Arc<String>, RuntimeError> {
         let const_id = operand.as_immd();
-        let name = self.program.constants[const_id as usize].clone();
-        let name = name
-            .downcast_ref::<String>()
-            .ok_or(RuntimeError::invalid_type::<String>(&name))?;
-        Ok(name.clone())
+        let name = &self.program.constants[const_id as usize];
+
+        match name {
+            Constant::String(name) => {
+                return Ok(name.clone());
+            }
+        };
     }
 }
 

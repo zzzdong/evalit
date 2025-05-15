@@ -1,4 +1,4 @@
-use crate::{RuntimeError, ValueRef};
+use crate::{RuntimeError, Value, ValueRef};
 
 use super::Object;
 
@@ -79,6 +79,24 @@ where
                 }
             }
             _ => Err(RuntimeError::missing_method::<Self>(method)),
+        }
+    }
+}
+
+
+impl<T: Object + Clone + PartialEq> PartialEq<Option<T>> for Value {
+    fn eq(&self, other: &Option<T>) -> bool {
+        match self.downcast_ref::<Option<T>>() {
+            Some(value) => *value == *other,
+            None => false,
+        }
+    }
+}
+impl<T: Object + Clone + PartialEq> PartialEq<Value> for Option<T> {
+    fn eq(&self, other: &Value) -> bool {
+        match other.downcast_ref::<Option<T>>() {
+            Some(value) => *self == *value,
+            None => false,
         }
     }
 }

@@ -71,7 +71,7 @@ impl ValueRef {
         ValueRef::new(Immd(immd))
     }
 
-    pub fn from_constant(constant: Constant) -> Self {
+    pub fn from_constant(constant: &Constant) -> Self {
         match constant {
             Constant::String(s) => ValueRef::new(s.as_str().to_string()),
         }

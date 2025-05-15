@@ -128,11 +128,33 @@ fn test_array_methods() {
         return false;
     };
     
+    // 测试数组迭代求和
+    let sum = 0;
+    for i in arr {
+        sum += i;
+    }
+    
+    if sum != 4 {
+        return false;
+    };
+    
+    // 测试enumerate迭代
+    let arr = [1, 2, 3, 4, 5];
+    let sum = 0;
+    for (i, ele) in arr.iter().enumerate() {
+        sum += i;
+        sum += ele;
+    }
+    
+    if sum != 0+1+1+2+2+3+3+4+4+5 {
+        return false;
+    };
+    
     return true;
     "#;
+
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
 
-    println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
 
@@ -162,12 +184,12 @@ fn test_map_basics() {
     if person["age"] != 31 {
         return false;
     };
-
+    
     return true;
     "#;
+
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
 
-    println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
 
@@ -193,7 +215,7 @@ fn test_map_methods() {
     if person["name"] != "Alice" || person["age"] != 30 || person["city"] != "New York" {
         return false;
     };
-
+    
     // 测试remove方法
     person.remove("city");
     
@@ -238,11 +260,78 @@ fn test_map_methods() {
             has_30 = true;
         }
     }
-
+    
     return has_Alice && has_30;
     "#;
+
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
 
-    println!("ret: {:?}", retval);
+    assert_eq!(retval, true);
+}
+
+#[test]
+fn test_range_operations() {
+    init_logger();
+
+    let env = Environment::new();
+
+    let script = r#"
+    // 测试不同形式的range
+    
+    // 简单range求和
+    let sum = 0;
+    for i in 0..5 {
+        sum += i;
+    }
+    if sum != 10 {
+        return false;
+    }
+    
+    // 测试包含上界的range
+    let sum = 0;
+    for i in 0..=5 {
+        sum += i;
+    }
+    if sum != 15 {
+        return false;
+    }
+    
+    // 测试带变量的range
+    let start = 2;
+    let end = 5;
+    let sum = 0;
+    for i in start..end {
+        sum += i;
+    }
+    if sum != 12 {
+        return false;
+    }
+    
+    // 测试空range
+    let count = 0;
+    for i in 5..3 {
+        count += 1;
+    }
+    if count != 0 {
+        return false;
+    }
+    
+    // 测试长度为0的range
+    let range = 0..0;
+    if range.len() != 0 {
+        return false;
+    }
+    
+    // 测试长度为非零的range
+    let range = 0..5;
+    if range.len() != 5 {
+        return false;
+    }
+    
+    return true;
+    "#;
+
+    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+
     assert_eq!(retval, true);
 }
