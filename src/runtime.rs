@@ -128,28 +128,28 @@ impl RuntimeError {
 
     pub fn missing_method<T>(method: impl ToString) -> Self {
         RuntimeError::MissingMethod {
-            object: format!("{}", std::any::type_name::<T>()),
+            object: std::any::type_name::<T>().to_string(),
             method: method.to_string(),
         }
     }
 
     pub fn missing_property<T>(property: impl ToString) -> Self {
         RuntimeError::MissingProperty {
-            object: format!("{}", std::any::type_name::<T>()),
+            object: std::any::type_name::<T>().to_string(),
             property: property.to_string(),
         }
     }
 
     pub fn missing_property_getter<T>(property: impl ToString) -> Self {
         RuntimeError::MissingPropertyGetter {
-            object: format!("{}", std::any::type_name::<T>()),
+            object: std::any::type_name::<T>().to_string(),
             property: property.to_string(),
         }
     }
 
     pub fn missing_property_setter<T>(property: impl ToString) -> Self {
         RuntimeError::MissingPropertySetter {
-            object: format!("{}", std::any::type_name::<T>()),
+            object: std::any::type_name::<T>().to_string(),
             property: property.to_string(),
         }
     }

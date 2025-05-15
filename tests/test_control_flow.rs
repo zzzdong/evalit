@@ -7,7 +7,7 @@ fn test_if_statement() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试if-else语句
     let script = r#"
     let a = 10;
@@ -29,7 +29,7 @@ fn test_if_statement() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
@@ -39,7 +39,7 @@ fn test_loop_statement() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试loop循环
     let script = r#"
     let i = 0;
@@ -58,7 +58,7 @@ fn test_loop_statement() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
@@ -68,7 +68,7 @@ fn test_while_statement() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试while循环
     let script = r#"
     let j = 0;
@@ -84,7 +84,7 @@ fn test_while_statement() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
@@ -94,7 +94,7 @@ fn test_for_statement() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试for循环
     let script = r#"
     let sum = 0;
@@ -119,7 +119,7 @@ fn test_for_statement() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
@@ -129,7 +129,7 @@ fn test_break_continue() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试break和continue语句
     let script = r#"
     // 测试简单循环中的break
@@ -198,7 +198,7 @@ fn test_break_continue() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
@@ -208,7 +208,7 @@ fn test_return_statement() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试函数返回值
     let script = r#"
     fn test_return() {
@@ -223,7 +223,7 @@ fn test_return_statement() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }

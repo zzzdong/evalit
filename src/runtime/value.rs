@@ -114,4 +114,3 @@ impl fmt::Display for ValueRef {
         self.borrow().debug(f)
     }
 }
-

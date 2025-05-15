@@ -100,7 +100,7 @@ fn test_array_methods() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试数组初始化和基本操作
     let script = r#"
     let arr = [1, 2, 3];
@@ -131,7 +131,7 @@ fn test_array_methods() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
@@ -176,7 +176,7 @@ fn test_map_methods() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试map的方法
     let script = r#"
     let person = {};

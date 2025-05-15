@@ -29,53 +29,35 @@ impl Module {
 #[derive(Debug, Clone, Copy)]
 pub struct Bytecode {
     pub opcode: Opcode,
-    pub operands: [Operand; 4],
+    pub operands: [Operand; 3],
 }
 
 impl Bytecode {
     pub fn empty(opcode: Opcode) -> Self {
         Self {
             opcode,
-            operands: [Operand::Immd(0); 4],
+            operands: [Operand::Immd(0); 3],
         }
     }
 
     pub fn single(opcode: Opcode, operand: Operand) -> Self {
         Self {
             opcode,
-            operands: [
-                operand,
-                Operand::Immd(0),
-                Operand::Immd(0),
-                Operand::Immd(0),
-            ],
+            operands: [operand, Operand::Immd(0), Operand::Immd(0)],
         }
     }
 
     pub fn double(opcode: Opcode, dst: Operand, src: Operand) -> Self {
         Self {
             opcode,
-            operands: [dst, src, Operand::Immd(0), Operand::Immd(0)],
+            operands: [dst, src, Operand::Immd(0)],
         }
     }
 
     pub fn triple(opcode: Opcode, dst: Operand, src1: Operand, src2: Operand) -> Self {
         Self {
             opcode,
-            operands: [dst, src1, src2, Operand::Immd(0)],
-        }
-    }
-
-    pub fn quadruple(
-        opcode: Opcode,
-        dst: Operand,
-        src1: Operand,
-        src2: Operand,
-        src3: Operand,
-    ) -> Self {
-        Self {
-            opcode,
-            operands: [dst, src1, src2, src3],
+            operands: [dst, src1, src2],
         }
     }
 }
@@ -179,8 +161,6 @@ pub enum Opcode {
     RangeToInclusive,
     /// make_iter dst, src
     MakeIter,
-    /// iter_has_next dst, src
-    IterHasNext,
     /// iter_next dst, src
     IterNext,
     /// make_array dst
@@ -199,8 +179,8 @@ pub enum Opcode {
     PropGet,
     /// prop_set obj, prop, value
     PropSet,
-    /// prop_call dst, obj, prop
-    PropCall,
+    /// method_call dst, obj, method
+    MethodCall,
     /// await dst, promise
     Await,
 }
@@ -247,7 +227,6 @@ impl fmt::Display for Opcode {
             Opcode::RangeTo => write!(f, "range_to"),
             Opcode::RangeToInclusive => write!(f, "range_to_inclusive"),
             Opcode::MakeIter => write!(f, "make_iter"),
-            Opcode::IterHasNext => write!(f, "iter_has_next"),
             Opcode::IterNext => write!(f, "iter_next"),
             Opcode::MakeArray => write!(f, "make_array"),
             Opcode::ArrayPush => write!(f, "array_push"),
@@ -257,7 +236,7 @@ impl fmt::Display for Opcode {
             Opcode::MakeSlice => write!(f, "make_slice"),
             Opcode::PropGet => write!(f, "prop_get"),
             Opcode::PropSet => write!(f, "prop_set"),
-            Opcode::PropCall => write!(f, "prop_call"),
+            Opcode::MethodCall => write!(f, "method_call"),
             Opcode::Await => write!(f, "await"),
         }
     }
@@ -338,13 +317,11 @@ pub enum Register {
     R14,
     R15,
     /// Stack pointer
-    RSP,
-    ///
-    RBP,
-    /// Program counter
-    PC,
+    Rsp,
+    /// Base pointer
+    Rbp,
     /// Return value
-    RV,
+    Rv,
 }
 
 impl Register {
@@ -377,7 +354,7 @@ impl Register {
         [Register::R0, Register::R1, Register::R2, Register::R3]
     }
 
-    pub fn all() -> [Register; 20] {
+    pub fn all() -> [Register; 19] {
         [
             Register::R0,
             Register::R1,
@@ -395,10 +372,9 @@ impl Register {
             Register::R13,
             Register::R14,
             Register::R15,
-            Register::RSP,
-            Register::RBP,
-            Register::PC,
-            Register::RV,
+            Register::Rsp,
+            Register::Rbp,
+            Register::Rv,
         ]
     }
 }
@@ -422,10 +398,9 @@ impl fmt::Display for Register {
             Register::R13 => write!(f, "r13"),
             Register::R14 => write!(f, "r14"),
             Register::R15 => write!(f, "r15"),
-            Register::RSP => write!(f, "rsp"),
-            Register::RBP => write!(f, "rbp"),
-            Register::PC => write!(f, "pc"),
-            Register::RV => write!(f, "rv"),
+            Register::Rsp => write!(f, "rsp"),
+            Register::Rbp => write!(f, "rbp"),
+            Register::Rv => write!(f, "rv"),
         }
     }
 }

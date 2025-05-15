@@ -107,7 +107,7 @@ fn test_eval_array() {
 
     println("array.len = ", array.len());
 
-    for (i, ele) in array.enumerate() {
+    for (i, ele) in array.iter().enumerate() {
         println("array[", i, "]=", ele);
     }
 
@@ -203,7 +203,7 @@ fn test_eval_for() {
         println("->", ele);
     }
 
-    for (i, ele) in arr.enumerate() {
+    for (i, ele) in arr.iter().enumerate() {
         println("[", i, "]->", i);
     }
 

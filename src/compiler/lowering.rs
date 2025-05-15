@@ -21,11 +21,8 @@ pub fn lowering(ast: Program, env: &Environment) -> Result<IrUnit, Error> {
 
     // declare functions
     for stmt in &ast.stmts {
-        match &stmt.node {
-            Statement::Item(ItemStatement::Fn(func)) => {
-                ast_lower.declare_function(&func);
-            }
-            _ => {}
+        if let Statement::Item(ItemStatement::Fn(func)) = &stmt.node {
+            ast_lower.declare_function(func);
         }
     }
 
@@ -235,14 +232,15 @@ impl<'a> ASTLower<'a> {
 
         // loop header, check if iterator has next
         self.builder.switch_to_block(loop_header);
-        let has_next = self.builder.iterator_has_next(iterable);
+        let next = self.builder.iterate_next(iterable);
+        let has_next = self.builder.call_property(next, "is_some", vec![]);
         self.builder.br_if(has_next, loop_body, after_blk);
 
         // loop body, get next value
         self.builder.switch_to_block(loop_body);
         let new_symbols = self.symbols.new_scope();
         let old_symbols = std::mem::replace(&mut self.symbols, new_symbols);
-        let next = self.builder.iterate_next(iterable);
+        let next = self.builder.call_property(next, "unwrap", vec![]);
         self.lower_pattern(pat, next);
 
         self.lower_block(body);

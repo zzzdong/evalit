@@ -214,14 +214,6 @@ pub trait InstBuilder {
         result
     }
 
-    fn iterator_has_next(&mut self, iter: Value) -> Value {
-        let result = self.alloc();
-
-        self.emit(Instruction::IteratorHasNext { iter, dst: result });
-
-        result
-    }
-
     fn iterate_next(&mut self, iter: Value) -> Value {
         let next = self.alloc();
         self.emit(Instruction::IterateNext { iter, dst: next });

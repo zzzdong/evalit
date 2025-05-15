@@ -6,11 +6,12 @@ mod function;
 mod immd;
 mod integer;
 mod map;
+mod metatable;
 mod null;
+mod optional;
 mod range;
 mod string;
 mod tuple;
-mod metatable;
 
 #[cfg(feature = "async")]
 mod promise;
@@ -18,7 +19,6 @@ mod promise;
 pub use emurator::Enumerator;
 pub use function::{Callable, NativeFunction, UserFunction};
 pub use immd::Immd;
-use metatable::MetaTable;
 pub use null::Null;
 pub use range::Range;
 
@@ -156,7 +156,7 @@ pub trait Object: std::any::Any + std::fmt::Debug {
         &mut self,
         method: &str,
         args: &[ValueRef],
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> Result<Option<ValueRef>, RuntimeError> {
         Err(RuntimeError::MissingMethod {
             object: type_name_of_val(self).to_string(),
             method: method.to_string(),
@@ -170,14 +170,7 @@ pub trait Object: std::any::Any + std::fmt::Debug {
         ))
     }
 
-    fn iterator_has_next(&self) -> Result<bool, RuntimeError> {
-        Err(RuntimeError::invalid_operation(
-            OperateKind::IteratorHasNext,
-            "unimplemented",
-        ))
-    }
-
-    fn iterate_next(&mut self) -> Result<ValueRef, RuntimeError> {
+    fn iterate_next(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::IterateNext,
             "unimplemented",
@@ -221,7 +214,6 @@ pub enum OperateKind {
     PropertySet,
     PropertyCall,
     MakeIterator,
-    IteratorHasNext,
     IterateNext,
     MakeSlice,
     Display,
@@ -250,7 +242,6 @@ impl fmt::Display for OperateKind {
             OperateKind::PropertySet => write!(f, "property_set"),
             OperateKind::PropertyCall => write!(f, "property_call"),
             OperateKind::MakeIterator => write!(f, "make_iterator"),
-            OperateKind::IteratorHasNext => write!(f, "iterator_has_next"),
             OperateKind::IterateNext => write!(f, "iterate_next"),
             OperateKind::MakeSlice => write!(f, "make_slice"),
             OperateKind::Display => write!(f, "display"),
@@ -259,7 +250,3 @@ impl fmt::Display for OperateKind {
         }
     }
 }
-
-
-
-

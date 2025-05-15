@@ -377,7 +377,7 @@ impl RegAlloc {
     }
 
     pub fn alloc(&mut self, value: Value, index: usize) -> (Register, Option<Action>) {
-        trace!("allocating {}", value);
+        trace!("allocating {value}");
 
         let interval = self.liveness.intervals.get(&value).unwrap();
 
@@ -411,7 +411,7 @@ impl RegAlloc {
     }
 
     pub fn release(&mut self, value: Value, index: usize) -> Option<Action> {
-        trace!("releasing {}", value);
+        trace!("releasing {value}");
 
         if !matches!(value, Value::Variable(_)) {
             return None;

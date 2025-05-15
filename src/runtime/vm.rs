@@ -61,11 +61,11 @@ impl<'a> VM<'a> {
     pub async fn run(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
         debug!("===constants===");
         for (i, constant) in self.program.constants.iter().enumerate() {
-            debug!("{}: {:?}", i, constant);
+            debug!("{i}: {constant:?}");
         }
         debug!("===instructions===");
         for (i, inst) in self.program.instructions.iter().enumerate() {
-            debug!("{}: {:?}", i, inst);
+            debug!("{i}: {inst:?}");
         }
 
         while let Some(inst) = self.program.instructions.get(self.state.pc) {
@@ -76,13 +76,13 @@ impl<'a> VM<'a> {
 
             match opcode {
                 Opcode::Halt => {
-                    let ret = self.get_value(Operand::Register(Register::RV))?;
+                    let ret = self.get_value(Operand::Register(Register::Rv))?;
                     return Ok(Some(ret));
                 }
 
                 Opcode::Ret => {
                     if self.state.ctrl_stack_reached_bottom() {
-                        let ret = self.get_value(Operand::Register(Register::RV))?;
+                        let ret = self.get_value(Operand::Register(Register::Rv))?;
                         return Ok(Some(ret));
                     }
                     let pc = self.state.popc()?;
@@ -120,13 +120,13 @@ impl<'a> VM<'a> {
 
             match opcode {
                 Opcode::Halt => {
-                    let ret = self.get_value(Operand::Register(Register::RV))?;
+                    let ret = self.get_value(Operand::Register(Register::Rv))?;
                     return Ok(Some(ret));
                 }
 
                 Opcode::Ret => {
                     if self.state.ctrl_stack_reached_bottom() {
-                        let ret = self.get_value(Operand::Register(Register::RV))?;
+                        let ret = self.get_value(Operand::Register(Register::Rv))?;
                         return Ok(Some(ret));
                     }
                     let pc = self.state.popc()?;
@@ -149,43 +149,43 @@ impl<'a> VM<'a> {
         match opcode {
             // ctrl stack opcode begin
             Opcode::MovC => match (operands[0], operands[1]) {
-                (Operand::Register(Register::RSP), Operand::Register(Register::RBP)) => {
+                (Operand::Register(Register::Rsp), Operand::Register(Register::Rbp)) => {
                     *self.state.rsp_mut() = self.state.rbp();
                 }
-                (Operand::Register(Register::RBP), Operand::Register(Register::RSP)) => {
+                (Operand::Register(Register::Rbp), Operand::Register(Register::Rsp)) => {
                     *self.state.rbp_mut() = self.state.rsp();
                 }
 
                 _ => unimplemented!("unsupported instruction:{inst:?}"),
             },
             Opcode::PushC => match operands[0] {
-                Operand::Register(Register::RSP) => {
+                Operand::Register(Register::Rsp) => {
                     self.state.pushc(self.state.rsp())?;
                 }
-                Operand::Register(Register::RBP) => {
+                Operand::Register(Register::Rbp) => {
                     self.state.pushc(self.state.rbp())?;
                 }
                 _ => unimplemented!("unsupported instruction:{inst:?}"),
             },
             Opcode::PopC => match operands[0] {
-                Operand::Register(Register::RSP) => {
+                Operand::Register(Register::Rsp) => {
                     let value = self.state.popc()?;
                     *self.state.rsp_mut() = value;
                 }
-                Operand::Register(Register::RBP) => {
+                Operand::Register(Register::Rbp) => {
                     let value = self.state.popc()?;
                     *self.state.rbp_mut() = value;
                 }
                 _ => unimplemented!("unsupported instruction:{inst:?}"),
             },
             Opcode::AddC => match (operands[0], operands[1]) {
-                (Operand::Register(Register::RSP), Operand::Register(Register::RSP)) => {
+                (Operand::Register(Register::Rsp), Operand::Register(Register::Rsp)) => {
                     *self.state.rsp_mut() = self.state.rsp() + operands[2].as_immd() as usize;
                 }
                 _ => unimplemented!("unsupported instruction:{inst:?}"),
             },
             Opcode::SubC => match (operands[0], operands[1]) {
-                (Operand::Register(Register::RSP), Operand::Register(Register::RSP)) => {
+                (Operand::Register(Register::Rsp), Operand::Register(Register::Rsp)) => {
                     *self.state.rsp_mut() = self.state.rsp() - operands[2].as_immd() as usize;
                 }
                 _ => unimplemented!("unsupported instruction:{inst:?}"),
@@ -260,7 +260,7 @@ impl<'a> VM<'a> {
                         }
                         let ret = func.call(&args)?;
                         let ret = ret.unwrap_or(Value::null());
-                        self.state.set_register(Register::RV, ValueRef::from(ret))?;
+                        self.state.set_register(Register::Rv, ValueRef::from(ret))?;
                     }
                     None => {
                         return Err(RuntimeError::invalid_operand(operands[0]));
@@ -268,7 +268,7 @@ impl<'a> VM<'a> {
                 }
             }
 
-            Opcode::PropCall => {
+            Opcode::MethodCall => {
                 let mut object = self.get_value(operands[0])?;
                 let prop = self.load_string(operands[1])?;
                 let arg_count = operands[2].as_immd() as usize;
@@ -279,8 +279,8 @@ impl<'a> VM<'a> {
                     args.push(arg);
                 }
                 let ret = object.borrow_mut().method_call(&prop, &args)?;
-                let ret = ret.unwrap_or(Value::null());
-                self.state.set_register(Register::RV, ValueRef::from(ret))?;
+                let ret = ret.unwrap_or(ValueRef::null());
+                self.state.set_register(Register::Rv, ret)?;
             }
 
             Opcode::Mov => {
@@ -409,7 +409,7 @@ impl<'a> VM<'a> {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
                 let eq = lhs.borrow().equal(&rhs.value())?;
-                let not_eq = !eq.downcast_ref::<bool>().unwrap().clone();
+                let not_eq = !*eq.downcast_ref::<bool>().unwrap();
                 self.set_value(operands[0], Value::new(not_eq))?;
             }
 
@@ -507,16 +507,10 @@ impl<'a> VM<'a> {
                 }
             }
 
-            Opcode::IterHasNext => {
-                let iterator = self.get_value(operands[1])?;
-                let value = iterator.borrow().iterator_has_next()?;
-                self.set_value(operands[0], ValueRef::new(value))?;
-            }
-
             Opcode::IterNext => {
                 let mut iterator = self.get_value(operands[1])?;
-                let value = iterator.borrow_mut().iterate_next()?;
-                self.set_value(operands[0], value)?;
+                let next = iterator.borrow_mut().iterate_next()?;
+                self.set_value(operands[0], Value::new(next))?;
             }
 
             Opcode::MakeMap => {
@@ -685,9 +679,8 @@ impl State {
 
     pub fn get_register(&self, reg: Register) -> Result<ValueRef, RuntimeError> {
         match reg {
-            Register::RSP => Err(RuntimeError::InvalidRegisterAccess(reg)),
-            Register::RBP => Err(RuntimeError::InvalidRegisterAccess(reg)),
-            Register::PC => Err(RuntimeError::InvalidRegisterAccess(reg)),
+            Register::Rsp => Err(RuntimeError::InvalidRegisterAccess(reg)),
+            Register::Rbp => Err(RuntimeError::InvalidRegisterAccess(reg)),
             _ => {
                 let index = reg.as_usize();
                 if index >= self.registers.len() {
@@ -700,9 +693,8 @@ impl State {
 
     pub fn set_register(&mut self, reg: Register, value: ValueRef) -> Result<(), RuntimeError> {
         match reg {
-            Register::RSP => Err(RuntimeError::InvalidRegisterAccess(reg)),
-            Register::RBP => Err(RuntimeError::InvalidRegisterAccess(reg)),
-            Register::PC => Err(RuntimeError::InvalidRegisterAccess(reg)),
+            Register::Rsp => Err(RuntimeError::InvalidRegisterAccess(reg)),
+            Register::Rbp => Err(RuntimeError::InvalidRegisterAccess(reg)),
             _ => {
                 let index = reg.as_usize();
                 if index >= self.registers.len() {

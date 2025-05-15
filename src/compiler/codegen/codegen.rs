@@ -59,8 +59,8 @@ impl Codegen {
         // placeholder
         self.codes.push(Bytecode::triple(
             Opcode::AddC,
-            Operand::Register(Register::RSP),
-            Operand::Register(Register::RSP),
+            Operand::Register(Register::Rsp),
+            Operand::Register(Register::Rsp),
             Operand::new_immd(0),
         ));
 
@@ -192,12 +192,6 @@ impl Codegen {
                         self.codes
                             .push(Bytecode::double(Opcode::MakeIter, dst, src));
                     }
-                    Instruction::IteratorHasNext { iter, dst: result } => {
-                        let src = self.gen_operand(iter);
-                        let dst = self.gen_operand(result);
-                        self.codes
-                            .push(Bytecode::double(Opcode::IterHasNext, dst, src));
-                    }
                     Instruction::IterateNext { iter, dst: next } => {
                         let src = self.gen_operand(iter);
                         let dst = self.gen_operand(next);
@@ -283,7 +277,7 @@ impl Codegen {
                             let ret = self.gen_operand(v);
                             self.codes.push(Bytecode::double(
                                 Opcode::Mov,
-                                Operand::new_register(Register::RV),
+                                Operand::new_register(Register::Rv),
                                 ret,
                             ));
                         }
@@ -398,12 +392,12 @@ impl Codegen {
         // 3. call function
         self.codes.push(Bytecode::single(
             Opcode::PushC,
-            Operand::new_register(Register::RBP),
+            Operand::new_register(Register::Rbp),
         ));
         self.codes.push(Bytecode::double(
             Opcode::MovC,
-            Operand::new_register(Register::RBP),
-            Operand::new_register(Register::RSP),
+            Operand::new_register(Register::Rbp),
+            Operand::new_register(Register::Rsp),
         ));
 
         // call
@@ -412,18 +406,18 @@ impl Codegen {
 
         self.codes.push(Bytecode::double(
             Opcode::MovC,
-            Operand::new_register(Register::RSP),
-            Operand::new_register(Register::RBP),
+            Operand::new_register(Register::Rsp),
+            Operand::new_register(Register::Rbp),
         ));
 
         self.codes
-            .push(Bytecode::single(Opcode::PopC, Register::RBP.into()));
+            .push(Bytecode::single(Opcode::PopC, Register::Rbp.into()));
 
         // 4. pop arguments
         self.codes.push(Bytecode::triple(
             Opcode::SubC,
-            Operand::Register(Register::RSP),
-            Operand::Register(Register::RSP),
+            Operand::Register(Register::Rsp),
+            Operand::Register(Register::Rsp),
             Operand::new_immd(args.len() as isize),
         ));
 
@@ -437,7 +431,7 @@ impl Codegen {
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
-            Operand::new_register(Register::RV),
+            Operand::new_register(Register::Rv),
         ));
     }
 
@@ -456,12 +450,12 @@ impl Codegen {
         // 3. call function
         self.codes.push(Bytecode::single(
             Opcode::PushC,
-            Operand::new_register(Register::RBP),
+            Operand::new_register(Register::Rbp),
         ));
         self.codes.push(Bytecode::double(
             Opcode::MovC,
-            Operand::new_register(Register::RBP),
-            Operand::new_register(Register::RSP),
+            Operand::new_register(Register::Rbp),
+            Operand::new_register(Register::Rsp),
         ));
 
         // call_ex
@@ -469,18 +463,18 @@ impl Codegen {
 
         self.codes.push(Bytecode::double(
             Opcode::MovC,
-            Operand::new_register(Register::RSP),
-            Operand::new_register(Register::RBP),
+            Operand::new_register(Register::Rsp),
+            Operand::new_register(Register::Rbp),
         ));
 
         self.codes
-            .push(Bytecode::single(Opcode::PopC, Register::RBP.into()));
+            .push(Bytecode::single(Opcode::PopC, Register::Rbp.into()));
 
         // 4. pop arguments
         self.codes.push(Bytecode::triple(
             Opcode::SubC,
-            Operand::Register(Register::RSP),
-            Operand::Register(Register::RSP),
+            Operand::Register(Register::Rsp),
+            Operand::Register(Register::Rsp),
             Operand::new_immd(args.len() as isize),
         ));
         // 5. restore registers
@@ -493,7 +487,7 @@ impl Codegen {
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
-            Operand::new_register(Register::RV),
+            Operand::new_register(Register::Rv),
         ));
     }
 
@@ -506,12 +500,12 @@ impl Codegen {
         // 3. call function
         self.codes.push(Bytecode::single(
             Opcode::PushC,
-            Operand::new_register(Register::RBP),
+            Operand::new_register(Register::Rbp),
         ));
         self.codes.push(Bytecode::double(
             Opcode::MovC,
-            Operand::new_register(Register::RBP),
-            Operand::new_register(Register::RSP),
+            Operand::new_register(Register::Rbp),
+            Operand::new_register(Register::Rsp),
         ));
 
         // call_native
@@ -523,18 +517,18 @@ impl Codegen {
 
         self.codes.push(Bytecode::double(
             Opcode::MovC,
-            Operand::new_register(Register::RSP),
-            Operand::new_register(Register::RBP),
+            Operand::new_register(Register::Rsp),
+            Operand::new_register(Register::Rbp),
         ));
 
         self.codes
-            .push(Bytecode::single(Opcode::PopC, Register::RBP.into()));
+            .push(Bytecode::single(Opcode::PopC, Register::Rbp.into()));
 
         // 4. pop arguments
         self.codes.push(Bytecode::triple(
             Opcode::SubC,
-            Operand::Register(Register::RSP),
-            Operand::Register(Register::RSP),
+            Operand::Register(Register::Rsp),
+            Operand::Register(Register::Rsp),
             Operand::new_immd(args.len() as isize),
         ));
 
@@ -543,7 +537,7 @@ impl Codegen {
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
-            Operand::new_register(Register::RV),
+            Operand::new_register(Register::Rv),
         ));
     }
 
@@ -556,18 +550,18 @@ impl Codegen {
         // 3. call function
         self.codes.push(Bytecode::single(
             Opcode::PushC,
-            Operand::new_register(Register::RBP),
+            Operand::new_register(Register::Rbp),
         ));
         self.codes.push(Bytecode::double(
             Opcode::MovC,
-            Operand::new_register(Register::RBP),
-            Operand::new_register(Register::RSP),
+            Operand::new_register(Register::Rbp),
+            Operand::new_register(Register::Rsp),
         ));
 
         let prop = self.gen_operand(property);
-        // prop_call
+        // method_call
         self.codes.push(Bytecode::triple(
-            Opcode::PropCall,
+            Opcode::MethodCall,
             callable,
             prop,
             Operand::new_immd(args.len() as isize),
@@ -575,18 +569,18 @@ impl Codegen {
 
         self.codes.push(Bytecode::double(
             Opcode::MovC,
-            Operand::new_register(Register::RSP),
-            Operand::new_register(Register::RBP),
+            Operand::new_register(Register::Rsp),
+            Operand::new_register(Register::Rbp),
         ));
 
         self.codes
-            .push(Bytecode::single(Opcode::PopC, Register::RBP.into()));
+            .push(Bytecode::single(Opcode::PopC, Register::Rbp.into()));
 
         // 4. pop arguments
         self.codes.push(Bytecode::triple(
             Opcode::SubC,
-            Operand::Register(Register::RSP),
-            Operand::Register(Register::RSP),
+            Operand::Register(Register::Rsp),
+            Operand::Register(Register::Rsp),
             Operand::new_immd(args.len() as isize),
         ));
 
@@ -595,7 +589,7 @@ impl Codegen {
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
-            Operand::new_register(Register::RV),
+            Operand::new_register(Register::Rv),
         ));
     }
 
@@ -844,10 +838,6 @@ mod tests {
 
         // block(3)
         cfg.switch_to_block(block3);
-        cfg.emit(Instruction::IteratorHasNext {
-            iter: Value::Variable(VariableId::new(2)),
-            dst: Value::Variable(VariableId::new(3)),
-        });
         cfg.emit(Instruction::BrIf {
             condition: Value::Variable(VariableId::new(3)),
             true_blk: Value::Block(block4),

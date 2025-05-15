@@ -7,7 +7,7 @@ fn test_arithmetic_operators() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试算术运算符
     let script = r#"
     if 2 + 3 != 5 {
@@ -33,7 +33,7 @@ fn test_arithmetic_operators() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
@@ -43,7 +43,7 @@ fn test_unary_operators() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试一元运算符
     let script = r#"
     let a = 5;
@@ -59,7 +59,7 @@ fn test_unary_operators() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
@@ -69,7 +69,7 @@ fn test_comparison_operators() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试比较运算符
     let script = r#"
     if 1 == 1 == false {
@@ -99,7 +99,7 @@ fn test_comparison_operators() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
@@ -109,7 +109,7 @@ fn test_logical_operators() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试逻辑运算符
     let script = r#"
     // 测试逻辑与
@@ -149,7 +149,7 @@ fn test_logical_operators() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }
@@ -159,7 +159,7 @@ fn test_assignment_operators() {
     init_logger();
 
     let env = Environment::new();
-    
+
     // 测试赋值运算符
     let script = r#"
     let b = 0;
@@ -192,7 +192,7 @@ fn test_assignment_operators() {
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    
+
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
 }

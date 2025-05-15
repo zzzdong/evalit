@@ -87,9 +87,9 @@ where
         &mut self,
         method: &str,
         args: &[ValueRef],
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> Result<Option<ValueRef>, RuntimeError> {
         match method {
-            "len" => Ok(Some(Value::new(self.len() as i64))),
+            "len" => Ok(Some(ValueRef::new(self.len() as i64))),
             "clear" => {
                 self.clear();
                 Ok(None)
@@ -128,17 +128,17 @@ where
                 Err(RuntimeError::invalid_argument_count(1, args.len()))
             }
             "keys" => {
-                if args.len() == 0 {
-                    let keys = self.keys().map(|key| key.clone()).collect::<Vec<_>>();
-                    return Ok(Some(Value::new(keys)));
+                if args.is_empty() {
+                    let keys = self.keys().cloned().collect::<Vec<_>>();
+                    return Ok(Some(ValueRef::new(keys)));
                 }
 
                 Err(RuntimeError::invalid_argument_count(0, args.len()))
             }
             "values" => {
-                if args.len() == 0 {
-                    let values = self.values().map(|value| value.clone()).collect::<Vec<_>>();
-                    return Ok(Some(Value::new(values)));
+                if args.is_empty() {
+                    let values = self.values().cloned().collect::<Vec<_>>();
+                    return Ok(Some(ValueRef::new(values)));
                 }
 
                 Err(RuntimeError::invalid_argument_count(0, args.len()))

@@ -230,11 +230,6 @@ pub enum Instruction {
         dst: Value,
         src: Value,
     },
-    /// Check if the iterator has another item.
-    IteratorHasNext {
-        dst: Value,
-        iter: Value,
-    },
     /// Get the next value from an iterator.
     /// The next value will be stored in `next`.
     IterateNext {
@@ -368,7 +363,6 @@ impl Instruction {
                 dst: result,
             } => (vec![*result], vec![*iter]),
             Instruction::IterateNext { iter, dst: next } => (vec![*next], vec![*iter]),
-            Instruction::IteratorHasNext { iter, dst: result } => (vec![*result], vec![*iter]),
             Instruction::MakeRange {
                 begin, end, result, ..
             } => match (begin, end) {
@@ -433,7 +427,7 @@ impl std::fmt::Display for Instruction {
                 args,
                 result: dst,
             } => {
-                write!(f, "{dst} = call_ex {callable}")?;
+                write!(f, "{dst} = call_ex {callable} ")?;
                 for arg in args {
                     write!(f, ", {arg}")?;
                 }
@@ -495,9 +489,6 @@ impl std::fmt::Display for Instruction {
             }
             Instruction::MakeIterator { src, dst } => {
                 write!(f, "{dst} = make_iterator {src}")
-            }
-            Instruction::IteratorHasNext { iter, dst } => {
-                write!(f, "{dst} = iterator_has_next {iter}")
             }
             Instruction::IterateNext { iter, dst } => {
                 write!(f, "{dst} = iterate_next {iter}")

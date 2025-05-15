@@ -1,9 +1,6 @@
 use crate::{Object, RuntimeError, Value, ValueRef};
 
-use super::{
-    Range,
-    metatable::{MetaObject, MetaProperty, MetaTable},
-};
+use super::{Range, metatable::MetaTable};
 
 impl Object for String {
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -11,6 +8,7 @@ impl Object for String {
     }
 
     fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
+        println!("equal string {self} {other:?}");
         if let Some(other) = other.downcast_ref::<String>() {
             return Ok(Value::new(self == other));
         }
@@ -70,7 +68,7 @@ impl Object for String {
         &mut self,
         method: &str,
         args: &[ValueRef],
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> Result<Option<ValueRef>, RuntimeError> {
         STRING_META_TABLE.method_call(self, method, args)
     }
 }
@@ -143,41 +141,41 @@ impl PartialEq<char> for Value {
 static STRING_META_TABLE: std::sync::LazyLock<MetaTable<String>> = std::sync::LazyLock::new(|| {
     MetaTable::new("String")
         .with_method("len", |this: &mut String, args| {
-            if args.len() == 0 {
-                return Ok(Some(Value::new(this.len())));
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.len())));
             }
             Err(RuntimeError::invalid_argument_count(0, args.len()))
         })
         .with_method("to_uppercase", |this: &mut String, args| {
-            if args.len() == 0 {
-                return Ok(Some(Value::new(this.to_uppercase())));
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.to_uppercase())));
             }
             Err(RuntimeError::invalid_argument_count(0, args.len()))
         })
         .with_method("to_lowercase", |this: &mut String, args| {
-            if args.len() == 0 {
-                return Ok(Some(Value::new(this.to_lowercase())));
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.to_lowercase())));
             }
             Err(RuntimeError::invalid_argument_count(0, args.len()))
         })
         .with_method("starts_with", |this: &mut String, args| {
             if args.len() == 1 {
                 let other = args[0].downcast_ref::<String>().unwrap();
-                return Ok(Some(Value::new(this.starts_with(other.as_str()))));
+                return Ok(Some(ValueRef::new(this.starts_with(other.as_str()))));
             }
             Err(RuntimeError::invalid_argument_count(1, args.len()))
         })
         .with_method("ends_with", |this: &mut String, args| {
             if args.len() == 1 {
                 let other = args[0].downcast_ref::<String>().unwrap();
-                return Ok(Some(Value::new(this.ends_with(other.as_str()))));
+                return Ok(Some(ValueRef::new(this.ends_with(other.as_str()))));
             }
             Err(RuntimeError::invalid_argument_count(1, args.len()))
         })
         .with_method("contains", |this: &mut String, args| {
             if args.len() == 1 {
                 let other = args[0].downcast_ref::<String>().unwrap();
-                return Ok(Some(Value::new(this.contains(other.as_str()))));
+                return Ok(Some(ValueRef::new(this.contains(other.as_str()))));
             }
             Err(RuntimeError::invalid_argument_count(1, args.len()))
         })
@@ -185,14 +183,16 @@ static STRING_META_TABLE: std::sync::LazyLock<MetaTable<String>> = std::sync::La
             if args.len() == 2 {
                 let old = args[0].downcast_ref::<String>().unwrap();
                 let new = args[1].downcast_ref::<String>().unwrap();
-                return Ok(Some(Value::new(this.replace(old.as_str(), new.as_str()))));
+                return Ok(Some(ValueRef::new(
+                    this.replace(old.as_str(), new.as_str()),
+                )));
             }
             Err(RuntimeError::invalid_argument_count(2, args.len()))
         })
         .with_method("split", |this: &mut String, args| {
             if args.len() == 1 {
                 let delimiter = args[0].downcast_ref::<String>().unwrap();
-                return Ok(Some(Value::new(
+                return Ok(Some(ValueRef::new(
                     this.split(delimiter.as_str())
                         .map(|s| s.to_string())
                         .collect::<Vec<String>>(),
@@ -201,26 +201,26 @@ static STRING_META_TABLE: std::sync::LazyLock<MetaTable<String>> = std::sync::La
             Err(RuntimeError::invalid_argument_count(1, args.len()))
         })
         .with_method("trim", |this: &mut String, args| {
-            if args.len() == 0 {
-                return Ok(Some(Value::new(this.trim().to_string())));
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.trim().to_string())));
             }
             Err(RuntimeError::invalid_argument_count(0, args.len()))
         })
         .with_method("trim_start", |this: &mut String, args| {
-            if args.len() == 0 {
-                return Ok(Some(Value::new(this.trim_start().to_string())));
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.trim_start().to_string())));
             }
             Err(RuntimeError::invalid_argument_count(0, args.len()))
         })
         .with_method("trim_end", |this: &mut String, args| {
-            if args.len() == 0 {
-                return Ok(Some(Value::new(this.trim_end().to_string())));
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.trim_end().to_string())));
             }
             Err(RuntimeError::invalid_argument_count(0, args.len()))
         })
         .with_method("chars", |this: &mut String, args| {
-            if args.len() == 0 {
-                return Ok(Some(Value::new(this.chars().collect::<Vec<char>>())));
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.chars().collect::<Vec<char>>())));
             }
             Err(RuntimeError::invalid_argument_count(0, args.len()))
         })

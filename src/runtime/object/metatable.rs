@@ -4,7 +4,7 @@ use crate::{RuntimeError, Value, ValueRef};
 
 use super::Object;
 
-type Method<T> = fn(&mut T, &[ValueRef]) -> Result<Option<Value>, RuntimeError>;
+type Method<T> = fn(&mut T, &[ValueRef]) -> Result<Option<ValueRef>, RuntimeError>;
 
 #[derive(Debug)]
 pub struct MetaTable<T> {
@@ -64,7 +64,7 @@ impl<T> MetaTable<T> {
                 Some(getter) => getter(this),
                 None => Err(RuntimeError::missing_property_getter::<T>(name)),
             },
-            None => return Err(RuntimeError::missing_property::<T>(name)),
+            None => Err(RuntimeError::missing_property::<T>(name)),
         }
     }
 
@@ -74,7 +74,7 @@ impl<T> MetaTable<T> {
                 Some(setter) => setter(this, value),
                 None => Err(RuntimeError::missing_property_setter::<T>(name)),
             },
-            None => return Err(RuntimeError::missing_property::<T>(name)),
+            None => Err(RuntimeError::missing_property::<T>(name)),
         }
     }
 
@@ -83,10 +83,10 @@ impl<T> MetaTable<T> {
         this: &mut T,
         method: &str,
         args: &[ValueRef],
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> Result<Option<ValueRef>, RuntimeError> {
         match self.methods.get(method) {
             Some(method) => (method.method)(this, args),
-            None => return Err(RuntimeError::missing_method::<T>(method)),
+            None => Err(RuntimeError::missing_method::<T>(method)),
         }
     }
 }
@@ -94,13 +94,13 @@ impl<T> MetaTable<T> {
 #[derive(Debug)]
 pub struct MetaMethod<T> {
     pub name: String,
-    pub method: fn(&mut T, &[ValueRef]) -> Result<Option<Value>, RuntimeError>,
+    pub method: fn(&mut T, &[ValueRef]) -> Result<Option<ValueRef>, RuntimeError>,
 }
 
 impl<T> MetaMethod<T> {
     pub fn new(
         name: impl ToString,
-        method: fn(&mut T, &[ValueRef]) -> Result<Option<Value>, RuntimeError>,
+        method: fn(&mut T, &[ValueRef]) -> Result<Option<ValueRef>, RuntimeError>,
     ) -> Self {
         Self {
             name: name.to_string(),
@@ -141,7 +141,7 @@ impl<T: 'static> Object for dyn MetaObject<T> {
                 Some(getter) => getter((self as &dyn std::any::Any).downcast_ref::<T>().unwrap()),
                 None => Err(RuntimeError::missing_property_getter::<T>(member)),
             },
-            None => return Err(RuntimeError::missing_property::<T>(member)),
+            None => Err(RuntimeError::missing_property::<T>(member)),
         }
     }
 
@@ -156,7 +156,7 @@ impl<T: 'static> Object for dyn MetaObject<T> {
                 ),
                 None => Err(RuntimeError::missing_property_setter::<T>(member)),
             },
-            None => return Err(RuntimeError::missing_property::<T>(member)),
+            None => Err(RuntimeError::missing_property::<T>(member)),
         }
     }
 
@@ -164,7 +164,7 @@ impl<T: 'static> Object for dyn MetaObject<T> {
         &mut self,
         method: &str,
         args: &[ValueRef],
-    ) -> Result<Option<Value>, RuntimeError> {
+    ) -> Result<Option<ValueRef>, RuntimeError> {
         match self.get_meta_table().methods.get(method) {
             Some(method) => (method.method)(
                 (self as &mut dyn std::any::Any)
@@ -172,7 +172,7 @@ impl<T: 'static> Object for dyn MetaObject<T> {
                     .unwrap(),
                 args,
             ),
-            None => return Err(RuntimeError::missing_method::<T>(method)),
+            None => Err(RuntimeError::missing_method::<T>(method)),
         }
     }
 }

@@ -96,11 +96,11 @@ impl<T: Object> IntoRet for Result<T, RuntimeError> {
     }
 }
 
-impl<T: Object> IntoRet for Result<Option<T>, RuntimeError> {
-    fn into_ret(self) -> Result<Option<Value>, RuntimeError> {
-        self.map(|v| v.map(Value::new))
-    }
-}
+// impl<T: Object> IntoRet for Result<Option<T>, RuntimeError> {
+//     fn into_ret(self) -> Result<Option<Value>, RuntimeError> {
+//         self.map(|v| v.map(Value::new))
+//     }
+// }
 
 pub trait FromValue: Sized {
     fn from_value(value: &ValueRef) -> Result<Self, RuntimeError>;

@@ -1,27 +1,21 @@
-use std::{fmt};
+use std::fmt;
 
-use crate::{Object, RuntimeError, Value, ValueRef};
+use crate::{Object, RuntimeError, ValueRef};
 
 use super::metatable::MetaTable;
 
 /// Enumerator
 pub struct Enumerator {
     iter: Box<dyn Iterator<Item = ValueRef>>,
-    next: Option<ValueRef>,
 }
 
 impl Enumerator {
     pub fn new(iter: Box<dyn Iterator<Item = ValueRef>>) -> Self {
-        let mut iter = iter;
-        let next = iter.next();
-        Self { iter, next }
+        Self { iter }
     }
 
     pub fn next(&mut self) -> Option<ValueRef> {
-        match self.next {
-            Some(_) => std::mem::replace(&mut self.next, self.iter.next()),
-            None => None,
-        }
+        self.iter.next()
     }
 }
 
@@ -31,26 +25,21 @@ impl fmt::Debug for Enumerator {
     }
 }
 
-// impl Iterator for Enumerator {
-//     type Item = ValueRef;
-
-//     fn next(&mut self) -> Option<Self::Item> {
-//         self.next.take().or_else(|| self.iter.next())
-//     }
-// }
-
 impl Object for Enumerator {
     fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Enumerator").finish()
     }
 
-    fn iterate_next(&mut self) -> Result<ValueRef, RuntimeError> {
-        let next = self.next();
-        Ok(next.expect("iterator exhausted"))
+    fn iterate_next(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
+        Ok(self.next())
     }
 
-    fn iterator_has_next(&self) -> Result<bool, RuntimeError> {
-        Ok(self.next.is_some())
+    fn method_call(
+        &mut self,
+        method: &str,
+        args: &[ValueRef],
+    ) -> Result<Option<ValueRef>, RuntimeError> {
+        ENUMERATOR_META_TABLE.method_call(self, method, args)
     }
 }
 
@@ -61,6 +50,30 @@ static ENUMERATOR_META_TABLE: std::sync::LazyLock<MetaTable<Enumerator>> =
                 if !args.is_empty() {
                     return Err(RuntimeError::invalid_argument_count(0, args.len()));
                 }
-                Ok(this.next().map(|v| v.take()))
+                Ok(this.next())
+            })
+            .with_method("enumerate", |this: &mut Enumerator, args| {
+                if !args.is_empty() {
+                    return Err(RuntimeError::invalid_argument_count(0, args.len()));
+                }
+
+                let iter = std::mem::replace(&mut this.iter, Box::new(std::iter::empty()));
+
+                let iter = iter
+                    .enumerate()
+                    .map(|(i, v)| ValueRef::new((ValueRef::new(i as i64), v)));
+
+                Ok(Some(ValueRef::new(Enumerator::new(Box::new(iter)))))
+            })
+            .with_method("count", |this, args| {
+                if !args.is_empty() {
+                    return Err(RuntimeError::invalid_argument_count(0, args.len()));
+                }
+
+                let iter = std::mem::replace(&mut this.iter, Box::new(std::iter::empty()));
+
+                let count = iter.count();
+
+                Ok(Some(ValueRef::new(count as i64)))
             })
     });

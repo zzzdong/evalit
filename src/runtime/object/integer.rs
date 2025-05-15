@@ -7,7 +7,6 @@ macro_rules! impl_object_for_integer {
                 write!(f, "{}", self)
             }
 
-            
             fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
                 if let Some(other) = other.downcast_ref::<$ty>() {
                     return Ok(Value::new(*self == *other));
