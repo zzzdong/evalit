@@ -1,10 +1,16 @@
 use std::collections::HashMap;
 
-use super::{Callable, NativeFunction, ValueRef};
+use super::{Callable, NativeFunction, Object, ValueRef};
+
+#[derive(Debug, Clone)]
+pub enum EnvVariable {
+    Value(ValueRef),
+    Function(ValueRef),
+}
 
 #[derive(Debug, Clone)]
 pub struct Environment {
-    pub(crate) symbols: HashMap<String, ValueRef>,
+    pub(crate) symbols: HashMap<String, EnvVariable>,
 }
 
 impl Default for Environment {
@@ -20,7 +26,7 @@ impl Environment {
         }
     }
 
-    pub fn with_variable(mut self, name: impl ToString, value: impl Into<ValueRef>) -> Self {
+    pub fn with_variable<T: Object>(mut self, name: impl ToString, value: T) -> Self {
         self.define(name, value);
         self
     }
@@ -34,33 +40,50 @@ impl Environment {
         self
     }
 
-    pub fn define(&mut self, name: impl ToString, value: impl Into<ValueRef>) {
-        self.symbols.insert(name.to_string(), value.into());
+    pub fn define<T: Object>(&mut self, name: impl ToString, value: T) {
+        self.symbols
+            .insert(name.to_string(), EnvVariable::Value(ValueRef::new(value)));
     }
-
-    // pub fn define_function<F>(&mut self, name: impl ToString, func: F)
-    // where
-    //     F: Fn(&[ValueRef]) -> Result<Option<Value>, RuntimeError> + 'static,
-    // {
-    //     let Value = Value.to_string();
-    //     self.define(Value.clone(), NativeFunction::new(Value, Box::new(func)));
-    // }
 
     pub fn define_function<Args: 'static>(
         &mut self,
         name: impl ToString,
         callable: impl Callable<Args> + Send,
     ) {
-        self.define(
+        self.symbols.insert(
             name.to_string(),
-            ValueRef::new(NativeFunction::new(
+            EnvVariable::Function(ValueRef::new(NativeFunction::new(
                 name,
                 Box::new(callable.into_function()),
-            )),
+            ))),
         );
     }
 
-    pub fn get(&self, name: impl AsRef<str>) -> Option<ValueRef> {
-        self.symbols.get(name.as_ref()).cloned()
+    pub fn get(&self, name: impl AsRef<str>) -> Option<&EnvVariable> {
+        self.symbols.get(name.as_ref())
     }
+
+    pub fn remove_as<T: Object>(&mut self, name: impl AsRef<str>) -> Option<T> {
+        match self.symbols.remove(name.as_ref()) {
+            Some(EnvVariable::Value(value)) => {
+                let object = value.take();
+                object.into_inner().ok()
+            }
+            _ => None,
+        }
+    }
+
+    // pub fn get_var(&self, name: impl AsRef<str>) -> Option<&&'a mut dyn Object> {
+    //     self.symbols.get(name.as_ref()).and_then(|val| match val {
+    //         EnvVariable::Value(value) => Some(value),
+    //         _ => None,
+    //     })
+    // }
+
+    // pub fn get_function_mut(&self, name: impl AsRef<str>) -> Option<&NativeFunction> {
+    //     self.symbols.get(name.as_ref()).and_then(|val| match val {
+    //         EnvVariable::Function(func) => Some(func),
+    //         _ => None,
+    //     })
+    // }
 }

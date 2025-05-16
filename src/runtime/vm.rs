@@ -9,48 +9,22 @@ use log::debug;
 #[cfg(feature = "async")]
 use super::Promise;
 use super::{
-    Enumerator, Environment, NativeFunction, Object, Range, RuntimeError, UserFunction, Value,
-    value::ValueRef,
+    Enumerator, EnvVariable, Environment, NativeFunction, Object, Range, RuntimeError,
+    UserFunction, Value, value::ValueRef,
 };
 use crate::bytecode::{Bytecode, Constant, FunctionId, Module, Opcode, Operand, Register};
 
 const STACK_MAX: usize = 0x0FFF;
 
 #[derive(Debug)]
-pub struct Program {
-    constants: Vec<ValueRef>,
-    instructions: Vec<Bytecode>,
-    symtab: HashMap<FunctionId, usize>,
-}
-
-impl Program {
-    pub fn new(module: Module) -> Self {
-        let Module {
-            constants,
-            instructions,
-            symtab: symbles,
-            ..
-        } = module;
-
-        let constants = constants.iter().map(ValueRef::from_constant).collect();
-
-        Self {
-            constants,
-            instructions,
-            symtab: symbles,
-        }
-    }
-}
-
-#[derive(Debug)]
 pub struct VM<'a> {
     state: State,
     program: &'a Module,
-    env: &'a Environment,
+    env: Environment,
 }
 
 impl<'a> VM<'a> {
-    pub fn new(program: &'a Module, env: &'a Environment) -> Self {
+    pub fn new(program: &'a Module, env: Environment) -> Self {
         Self {
             state: State::new(),
             program,
@@ -148,7 +122,103 @@ impl<'a> VM<'a> {
         let Bytecode { opcode, operands } = inst;
 
         match opcode {
-            // ctrl stack opcode begin
+            // Control Flow Instructions
+            Opcode::Call => {
+                let func = operands[0].as_immd();
+                match self.program.symtab.get(&FunctionId::new(func as u32)) {
+                    Some(location) => {
+                        self.state.pushc(self.state.pc() + 1)?;
+                        self.state.jump(*location);
+                        return Ok(());
+                    }
+                    None => {
+                        return Err(RuntimeError::SymbolNotFound {
+                            name: format!("{func}"),
+                        });
+                    }
+                }
+            }
+            Opcode::CallEx => match operands[0] {
+                Operand::Symbol(sym) => match self.program.symtab.get(&FunctionId::new(sym)) {
+                    Some(location) => {
+                        self.state.pushc(self.state.pc() + 1)?;
+                        self.state.jump(*location);
+                        return Ok(());
+                    }
+                    None => {
+                        return Err(RuntimeError::SymbolNotFound {
+                            name: format!("{sym}"),
+                        });
+                    }
+                },
+                Operand::Register(_) | Operand::Stack(_) => {
+                    let value = self.get_value(operands[0])?;
+                    match value.downcast_ref::<UserFunction>() {
+                        Some(func) => match self.program.symtab.get(&func.id()) {
+                            Some(location) => {
+                                self.state.pushc(self.state.pc() + 1)?;
+                                self.state.jump(*location);
+                                return Ok(());
+                            }
+                            None => {
+                                return Err(RuntimeError::SymbolNotFound {
+                                    name: format!("{:?}", func.id()),
+                                });
+                            }
+                        },
+                        None => {
+                            return Err(RuntimeError::invalid_operand(operands[0]));
+                        }
+                    }
+                }
+
+                _ => return Err(RuntimeError::invalid_operand(operands[0])),
+            },
+
+            Opcode::Br => {
+                let offset = operands[0].as_immd();
+                self.state.jump_offset(offset);
+                return Ok(());
+            }
+
+            Opcode::BrIf => {
+                let cond = self.get_value(operands[0])?;
+                match cond.downcast_ref::<bool>() {
+                    Some(b) => {
+                        let offset = if *b {
+                            operands[1].as_immd()
+                        } else {
+                            operands[2].as_immd()
+                        };
+                        self.state.jump_offset(offset);
+                    }
+                    None => return Err(RuntimeError::invalid_type::<bool>(&cond)),
+                }
+                return Ok(());
+            }
+
+            // Stack and Register Manipulation
+            Opcode::Mov => {
+                let value = self.get_value(operands[1])?;
+                match operands[0] {
+                    Operand::Register(reg) => {
+                        self.state.set_register(reg, value)?;
+                    }
+                    Operand::Stack(offset) => {
+                        self.state.set_value_to_stack(offset, value)?;
+                    }
+                    op => return Err(RuntimeError::invalid_operand(op)),
+                }
+            }
+            Opcode::Push => {
+                let value = self.get_value(operands[0])?;
+                self.state.push(value)?;
+            }
+            Opcode::Pop => {
+                let value = self.state.pop()?;
+                self.set_value(operands[0], value)?;
+            }
+
             Opcode::MovC => match (operands[0], operands[1]) {
                 (Operand::Register(Register::Rsp), Operand::Register(Register::Rbp)) => {
                     *self.state.rsp_mut() = self.state.rbp();
@@ -191,125 +261,8 @@ impl<'a> VM<'a> {
                 }
                 _ => unimplemented!("unsupported instruction:{inst:?}"),
             },
-            // ctrl stack opcode end
-            Opcode::Call => {
-                let func = operands[0].as_immd();
-                match self.program.symtab.get(&FunctionId::new(func as u32)) {
-                    Some(location) => {
-                        self.state.pushc(self.state.pc() + 1)?;
-                        self.state.jump(*location);
-                        return Ok(());
-                    }
-                    None => {
-                        return Err(RuntimeError::SymbolNotFound {
-                            name: format!("{func}"),
-                        });
-                    }
-                }
-            }
-            Opcode::CallEx => {
-                match operands[0] {
-                    Operand::Symbol(sym) => match self.program.symtab.get(&FunctionId::new(sym)) {
-                        Some(location) => {
-                            self.state.pushc(self.state.pc() + 1)?;
-                            self.state.jump(*location);
-                            return Ok(());
-                        }
-                        None => {
-                            return Err(RuntimeError::SymbolNotFound {
-                                name: format!("{sym}"),
-                            });
-                        }
-                    },
-                    Operand::Register(_) | Operand::Stack(_) => {
-                        let value = self.get_value(operands[0])?;
-                        match value.downcast_ref::<UserFunction>() {
-                            Some(func) => match self.program.symtab.get(&func.id()) {
-                                Some(location) => {
-                                    self.state.pushc(self.state.pc() + 1)?;
-                                    self.state.jump(*location);
-                                    return Ok(());
-                                }
-                                None => {
-                                    return Err(RuntimeError::SymbolNotFound {
-                                        name: format!("{:?}", func.id()),
-                                    });
-                                }
-                            },
-                            None => {
-                                return Err(RuntimeError::invalid_operand(operands[0]));
-                            }
-                        }
-                        // value.get_mut().call(&[]);
-                        // unimplemented!("call object {value:?}")
-                    }
 
-                    _ => return Err(RuntimeError::invalid_operand(operands[0])),
-                }
-            }
-
-            Opcode::CallNative => {
-                let mut func = self.get_value(operands[0])?;
-                let arg_count = operands[1].as_immd() as usize;
-                match func.downcast_mut::<NativeFunction>() {
-                    Some(mut func) => {
-                        // load args from stack
-                        let mut args = Vec::with_capacity(arg_count);
-                        for i in 0..arg_count {
-                            let arg = self.get_value(Operand::Stack(-(i as isize + 1)))?;
-                            args.push(arg);
-                        }
-                        let ret = func.call(&args)?;
-                        let ret = ret.unwrap_or(Value::null());
-                        self.state.set_register(Register::Rv, ValueRef::from(ret))?;
-                    }
-                    None => {
-                        return Err(RuntimeError::invalid_operand(operands[0]));
-                    }
-                }
-            }
-
-            Opcode::MethodCall => {
-                let mut object = self.get_value(operands[0])?;
-                let prop = self.load_string(operands[1])?;
-                let arg_count = operands[2].as_immd() as usize;
-                // load args from stack
-                let mut args = Vec::with_capacity(arg_count);
-                for i in 0..arg_count {
-                    let arg = self.get_value(Operand::Stack(-(i as isize + 1)))?;
-                    args.push(arg);
-                }
-                let ret = object.borrow_mut().method_call(&prop, &args)?;
-                let ret = ret.unwrap_or(ValueRef::null());
-                self.state.set_register(Register::Rv, ret)?;
-            }
-
-            Opcode::Mov => {
-                let value = self.get_value(operands[1])?;
-                match operands[0] {
-                    Operand::Register(reg) => {
-                        self.state.set_register(reg, value)?;
-                    }
-                    Operand::Stack(offset) => {
-                        self.state.set_value_to_stack(offset, value)?;
-                    }
-                    op => return Err(RuntimeError::invalid_operand(op)),
-                }
-            }
-            Opcode::Push => {
-                let value = self.get_value(operands[0])?;
-                self.state.push(value)?;
-            }
-            Opcode::Pop => {
-                let value = self.state.pop()?;
-                self.set_value(operands[0], value)?;
-            }
-
-            Opcode::Not | Opcode::Neg => {
-                let value = self.get_value(operands[1])?;
-                let value = value.borrow().negate()?;
-                self.set_value(operands[0], ValueRef::from(value))?;
-            }
+            // Arithmetic Operations
             Opcode::Addx => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
@@ -341,6 +294,12 @@ impl<'a> VM<'a> {
                 self.set_value(operands[0], value)?;
             }
 
+            // Logical Operations
+            Opcode::Not | Opcode::Neg => {
+                let value = self.get_value(operands[1])?;
+                let value = value.borrow().negate()?;
+                self.set_value(operands[0], ValueRef::from(value))?;
+            }
             Opcode::And => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
@@ -354,6 +313,7 @@ impl<'a> VM<'a> {
                 self.set_value(operands[0], value)?;
             }
 
+            // Comparison Operations
             Opcode::Greater => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
@@ -414,6 +374,7 @@ impl<'a> VM<'a> {
                 self.set_value(operands[0], Value::new(not_eq))?;
             }
 
+            // Load Instructions
             Opcode::LoadConst => {
                 let const_index = operands[1].as_immd();
                 let value = ValueRef::from_constant(&self.program.constants[const_index as usize]);
@@ -424,39 +385,80 @@ impl<'a> VM<'a> {
                 let name = operands[1].as_immd();
                 let name = &self.program.constants[name as usize];
                 match name {
-                    Constant::String(_) => {
-                        let value = ValueRef::from_constant(name);
-                        self.set_value(operands[0], value)?;
-                    }
-                    _ => {
-                        return Err(RuntimeError::internal("invalid constant type"));
-                    }
+                    Constant::String(name) => match self.env.get(name.as_str()) {
+                        Some(EnvVariable::Value(value)) => {
+                            self.set_value(operands[0], value.clone())?;
+                        }
+                        Some(EnvVariable::Function(function)) => {
+                            self.set_value(operands[0], function.clone())?;
+                        }
+                        None => {
+                            return Err(RuntimeError::internal("undefined variable"));
+                        }
+                    },
                 };
-                return Ok(());
             }
 
-            Opcode::Br => {
-                let offset = operands[0].as_immd();
-                self.state.jump_offset(offset);
-                return Ok(());
+            // Collection / Structural Operations
+            Opcode::MakeArray => {
+                let array: Vec<ValueRef> = Vec::new();
+                self.set_value(operands[0], ValueRef::new(array))?;
             }
 
-            Opcode::BrIf => {
-                let cond = self.get_value(operands[0])?;
-                match cond.downcast_ref::<bool>() {
-                    Some(b) => {
-                        let offset = if *b {
-                            operands[1].as_immd()
-                        } else {
-                            operands[2].as_immd()
-                        };
-                        self.state.jump_offset(offset);
-                    }
-                    None => return Err(RuntimeError::invalid_type::<bool>(&cond)),
-                }
-                return Ok(());
+            Opcode::ArrayPush => {
+                let mut array = self.get_value(operands[0])?;
+                let value = self.get_value(operands[1])?;
+                let array_cloned = array.clone();
+                let mut array = array
+                    .downcast_mut::<Vec<ValueRef>>()
+                    .ok_or(RuntimeError::invalid_type::<Vec<ValueRef>>(array_cloned))?;
+                array.push(value);
             }
 
+            Opcode::MakeMap => {
+                let map: HashMap<String, ValueRef> = HashMap::new();
+                self.set_value(operands[0], ValueRef::new(map))?;
+            }
+
+            Opcode::MakeSlice => {
+                let object = self.get_value(operands[1])?;
+                let range = self.get_value(operands[2])?;
+
+                let slice = object.borrow().make_slice(range)?;
+                self.set_value(operands[0], slice)?;
+            }
+
+            Opcode::IndexSet => {
+                let mut object = self.get_value(operands[0])?;
+                let index = self.get_value(operands[1])?;
+                let value = self.get_value(operands[2])?;
+                object.borrow_mut().index_set(&index.value(), value)?;
+            }
+
+            Opcode::IndexGet => {
+                let object = self.get_value(operands[1])?;
+                let index = self.get_value(operands[2])?;
+                let value = object.borrow().index_get(&index.value())?;
+                self.set_value(operands[0], value)?;
+            }
+
+            Opcode::PropGet => {
+                let object = self.get_value(operands[1])?;
+                let prop = self.load_string(operands[2])?;
+
+                let value = object.borrow().property_get(&prop)?;
+
+                self.set_value(operands[0], value)?;
+            }
+            Opcode::PropSet => {
+                let mut object = self.get_value(operands[0])?;
+                let prop = self.load_string(operands[1])?;
+                let value = self.get_value(operands[2])?;
+
+                object.borrow_mut().property_set(&prop, value)?;
+            }
+
+            // Range Operations
             Opcode::Range => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
@@ -494,6 +496,7 @@ impl<'a> VM<'a> {
                 self.set_value(operands[0], ValueRef::new(value))?;
             }
 
+            // Iteration Support
             Opcode::MakeIter => {
                 let obj = self.get_value(operands[1])?;
                 match obj.downcast_ref::<Enumerator>() {
@@ -513,62 +516,46 @@ impl<'a> VM<'a> {
                 self.set_value(operands[0], Value::new(next))?;
             }
 
-            Opcode::MakeMap => {
-                let map: HashMap<String, ValueRef> = HashMap::new();
-                self.set_value(operands[0], ValueRef::new(map))?;
-            }
-
-            Opcode::IndexSet => {
-                let mut object = self.get_value(operands[0])?;
-                let index = self.get_value(operands[1])?;
-                let value = self.get_value(operands[2])?;
-                object.borrow_mut().index_set(&index.value(), value)?;
-            }
-
-            Opcode::IndexGet => {
-                let object = self.get_value(operands[1])?;
-                let index = self.get_value(operands[2])?;
-                let value = object.borrow().index_get(&index.value())?;
-                self.set_value(operands[0], value)?;
-            }
-
-            Opcode::MakeArray => {
-                let array: Vec<ValueRef> = Vec::new();
-                self.set_value(operands[0], ValueRef::new(array))?;
-            }
-
-            Opcode::ArrayPush => {
-                let mut array = self.get_value(operands[0])?;
-                let value = self.get_value(operands[1])?;
-                let array_cloned = array.clone();
-                let mut array = array
-                    .downcast_mut::<Vec<ValueRef>>()
-                    .ok_or(RuntimeError::invalid_type::<Vec<ValueRef>>(array_cloned))?;
-                array.push(value);
-            }
-
-            Opcode::MakeSlice => {
-                let object = self.get_value(operands[1])?;
-                let range = self.get_value(operands[2])?;
-
-                let slice = object.borrow().make_slice(range)?;
-                self.set_value(operands[0], slice)?;
-            }
-            Opcode::PropGet => {
-                let object = self.get_value(operands[1])?;
-                let prop = self.load_string(operands[2])?;
-
-                let value = object.borrow().property_get(&prop)?;
-
-                self.set_value(operands[0], value)?;
-            }
-            Opcode::PropSet => {
+            // Object Method Call
+            Opcode::MethodCall => {
                 let mut object = self.get_value(operands[0])?;
                 let prop = self.load_string(operands[1])?;
-                let value = self.get_value(operands[2])?;
-
-                object.borrow_mut().property_set(&prop, value)?;
+                let arg_count = operands[2].as_immd() as usize;
+                // load args from stack
+                let mut args = Vec::with_capacity(arg_count);
+                for i in 0..arg_count {
+                    let offset = -(i as isize + 1);
+                    let arg = self.get_value(Operand::Stack(offset))?;
+                    args.push(arg);
+                }
+                let ret = object.borrow_mut().method_call(&prop, &args)?;
+                let ret = ret.unwrap_or(ValueRef::null());
+                self.state.set_register(Register::Rv, ret)?;
             }
+
+            // Native method call
+            Opcode::CallNative => {
+                let mut func = self.get_value(operands[0])?;
+                let arg_count = operands[1].as_immd() as usize;
+                match func.downcast_mut::<NativeFunction>() {
+                    Some(mut func) => {
+                        // load args from stack
+                        let mut args = Vec::with_capacity(arg_count);
+                        for i in 0..arg_count {
+                            let offset = -(i as isize + 1);
+                            let arg = self.get_value(Operand::Stack(offset))?;
+                            args.push(arg);
+                        }
+                        let ret = func.call(&args)?;
+                        let ret = ret.unwrap_or(Value::null());
+                        self.state.set_register(Register::Rv, ValueRef::from(ret))?;
+                    }
+                    None => {
+                        return Err(RuntimeError::invalid_operand(operands[0]));
+                    }
+                }
+            }
+
             inst => unreachable!("unsupported instruction {inst:?}"),
         }
 
@@ -608,10 +595,8 @@ impl<'a> VM<'a> {
         let name = &self.program.constants[const_id as usize];
 
         match name {
-            Constant::String(name) => {
-                return Ok(name.clone());
-            }
-        };
+            Constant::String(name) => Ok(name.clone()),
+        }
     }
 }
 

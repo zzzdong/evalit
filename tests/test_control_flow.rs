@@ -24,8 +24,7 @@ fn test_if_statement() {
     // 验证if-else结果
     if result != "a is 10" {
         return false;
-    };
-    
+    }
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();

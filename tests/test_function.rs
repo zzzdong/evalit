@@ -4,6 +4,8 @@ use utils::init_logger;
 
 #[test]
 fn test_basic_function() {
+    init_logger();
+
     let env = Environment::new();
 
     // 测试无参数无返回值的函数
@@ -13,7 +15,7 @@ fn test_basic_function() {
     }
     hello();
     "#;
-    assert!(Interpreter::eval_script(script, env.clone()).is_ok());
+    assert!(Interpreter::eval_script(script, env).is_ok());
 }
 
 #[test]
@@ -25,11 +27,16 @@ fn test_function_with_params() {
     fn add(a, b) {
         return a + b;
     }
-    let result = add(5, 3);
-    return result;
+    
+    let result = add(2, 3);
+    if result != 5 {
+        return false;
+    }
+
+    return true;
     "#;
-    let ret = Interpreter::eval_script(script, env.clone()).unwrap();
-    assert_eq!(ret.unwrap(), 8);
+    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    assert_eq!(retval, true);
 }
 
 #[test]
@@ -46,7 +53,8 @@ fn test_function_scope() {
     let y = modify();
     return x;  // 应该返回外部作用域的x值
     "#;
-    let ret = Interpreter::eval_script(script, env.clone()).unwrap();
+
+    let ret = Interpreter::eval_script(script, env).unwrap();
     assert_eq!(ret.unwrap(), 1);
 }
 
@@ -65,7 +73,7 @@ fn test_recursive_function() {
     let result = factorial(5);
     return result;
     "#;
-    let ret = Interpreter::eval_script(script, env.clone()).unwrap();
+    let ret = Interpreter::eval_script(script, env).unwrap();
     assert_eq!(ret.unwrap(), 120);
 }
 
@@ -90,28 +98,9 @@ fn test_fibonacci() {
     }
     return sum;
     "#;
-    let ret = Interpreter::eval_script(script, env.clone()).unwrap();
+    let ret = Interpreter::eval_script(script, env).unwrap();
     assert_eq!(ret.unwrap(), 143);
 }
-
-// #[test]
-// fn test_nested_functions() {
-//     let env = Environment::new();
-
-//     // 测试嵌套函数调用
-//     let script = r#"
-//     fn outer(x) {
-//         fn inner(y) {
-//             return y * 2;
-//         }
-//         return inner(x) + 1;
-//     }
-//     let result = outer(5);
-//     return result;
-//     "#;
-//     let ret = Interpreter::eval_script(script, env.clone()).unwrap();
-//     assert_eq!(ret.unwrap(), 11);
-// }
 
 #[test]
 fn test_multiple_returns() {
@@ -128,7 +117,7 @@ fn test_multiple_returns() {
     let result = max(10, 5);
     return result;
     "#;
-    let ret = Interpreter::eval_script(script, env.clone()).unwrap();
+    let ret = Interpreter::eval_script(script, env).unwrap();
     assert_eq!(ret.unwrap(), 10);
 }
 

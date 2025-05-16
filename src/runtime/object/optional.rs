@@ -83,7 +83,6 @@ where
     }
 }
 
-
 impl<T: Object + Clone + PartialEq> PartialEq<Option<T>> for Value {
     fn eq(&self, other: &Option<T>) -> bool {
         match self.downcast_ref::<Option<T>>() {

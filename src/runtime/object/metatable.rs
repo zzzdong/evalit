@@ -5,13 +5,14 @@ use crate::{RuntimeError, Value, ValueRef};
 use super::Object;
 
 type Method<T> = fn(&mut T, &[ValueRef]) -> Result<Option<ValueRef>, RuntimeError>;
+type Getter<T> = fn(&T) -> Result<Value, RuntimeError>;
+type Setter<T> = fn(&mut T, Value) -> Result<(), RuntimeError>;
 
 #[derive(Debug)]
 pub struct MetaTable<T> {
     pub name: String,
-    pub methods: HashMap<String, MetaMethod<T>>,
+    pub methods: HashMap<String, Method<T>>,
     pub properties: HashMap<String, MetaProperty<T>>,
-    // _marker: std::marker::PhantomData<T>,
 }
 
 impl<T> MetaTable<T> {
@@ -20,13 +21,11 @@ impl<T> MetaTable<T> {
             name: name.to_string(),
             methods: HashMap::new(),
             properties: HashMap::new(),
-            // _marker: std::marker::PhantomData,
         }
     }
 
     pub fn with_method(mut self, name: impl ToString, method: Method<T>) -> Self {
-        self.methods
-            .insert(name.to_string(), MetaMethod::new(name, method));
+        self.methods.insert(name.to_string(), method);
         self
     }
 
@@ -34,11 +33,7 @@ impl<T> MetaTable<T> {
         self.properties.insert(property.name.clone(), property);
     }
 
-    pub fn with_property_getter(
-        mut self,
-        name: &str,
-        getter: fn(&T) -> Result<Value, RuntimeError>,
-    ) -> Self {
+    pub fn with_property_getter(mut self, name: &str, getter: Getter<T>) -> Self {
         self.properties.insert(
             name.to_string(),
             MetaProperty::new(name, Some(getter), None),
@@ -46,11 +41,7 @@ impl<T> MetaTable<T> {
         self
     }
 
-    pub fn with_property_setter(
-        mut self,
-        name: &str,
-        setter: fn(&mut T, Value) -> Result<(), RuntimeError>,
-    ) -> Self {
+    pub fn with_property_setter(mut self, name: &str, setter: Setter<T>) -> Self {
         self.properties.insert(
             name.to_string(),
             MetaProperty::new(name, None, Some(setter)),
@@ -85,26 +76,8 @@ impl<T> MetaTable<T> {
         args: &[ValueRef],
     ) -> Result<Option<ValueRef>, RuntimeError> {
         match self.methods.get(method) {
-            Some(method) => (method.method)(this, args),
+            Some(method_fn) => (method_fn)(this, args),
             None => Err(RuntimeError::missing_method::<T>(method)),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct MetaMethod<T> {
-    pub name: String,
-    pub method: fn(&mut T, &[ValueRef]) -> Result<Option<ValueRef>, RuntimeError>,
-}
-
-impl<T> MetaMethod<T> {
-    pub fn new(
-        name: impl ToString,
-        method: fn(&mut T, &[ValueRef]) -> Result<Option<ValueRef>, RuntimeError>,
-    ) -> Self {
-        Self {
-            name: name.to_string(),
-            method,
         }
     }
 }
@@ -112,16 +85,12 @@ impl<T> MetaMethod<T> {
 #[derive(Debug)]
 pub struct MetaProperty<T> {
     pub name: String,
-    pub getter: Option<fn(&T) -> Result<Value, RuntimeError>>,
-    pub setter: Option<fn(&mut T, Value) -> Result<(), RuntimeError>>,
+    pub getter: Option<Getter<T>>,
+    pub setter: Option<Setter<T>>,
 }
 
 impl<T> MetaProperty<T> {
-    pub fn new(
-        name: &str,
-        getter: Option<fn(&T) -> Result<Value, RuntimeError>>,
-        setter: Option<fn(&mut T, Value) -> Result<(), RuntimeError>>,
-    ) -> Self {
+    pub fn new(name: &str, getter: Option<Getter<T>>, setter: Option<Setter<T>>) -> Self {
         Self {
             name: name.to_string(),
             getter,
@@ -166,7 +135,7 @@ impl<T: 'static> Object for dyn MetaObject<T> {
         args: &[ValueRef],
     ) -> Result<Option<ValueRef>, RuntimeError> {
         match self.get_meta_table().methods.get(method) {
-            Some(method) => (method.method)(
+            Some(method) => (method)(
                 (self as &mut dyn std::any::Any)
                     .downcast_mut::<T>()
                     .unwrap(),
@@ -180,7 +149,6 @@ impl<T: 'static> Object for dyn MetaObject<T> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::Object;
 
     #[test]
     fn test_metatable() {

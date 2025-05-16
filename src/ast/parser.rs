@@ -6,7 +6,7 @@ use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
 };
 
-use super::ast::*;
+use super::syntax::*;
 
 #[derive(Debug)]
 pub struct ParseError(Box<pest::error::Error<Rule>>);

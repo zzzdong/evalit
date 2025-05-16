@@ -91,7 +91,7 @@ pub enum Type {
 
 impl Type {
     pub fn is_boolean(&self) -> bool {
-        matches!(self, Type::Boolean | Type::Void)
+        matches!(self, Type::Boolean | Type::Void | Type::Unknown)
     }
 
     pub fn is_numeric(&self) -> bool {

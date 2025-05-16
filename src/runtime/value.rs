@@ -33,6 +33,12 @@ impl Value {
     pub fn object(&self) -> &dyn Object {
         &*self.0
     }
+
+    pub fn into_inner<T: Object + 'static>(self) -> Result<T, Box<dyn std::any::Any + 'static>> {
+        (self.0 as Box<dyn std::any::Any>)
+            .downcast::<T>()
+            .map(|v| *v)
+    }
 }
 
 #[derive(Debug, Clone)]

@@ -8,12 +8,12 @@ mod value;
 mod vm;
 
 use crate::bytecode::{Operand, Register};
-pub use environment::Environment;
+pub use environment::{EnvVariable, Environment};
 #[cfg(feature = "async")]
 pub use object::Promise;
 pub use object::{Callable, Enumerator, NativeFunction, Null, Object, Range};
 pub use value::{Value, ValueRef};
-pub use vm::{Program, VM};
+pub use vm::VM;
 
 pub(crate) use object::{Immd, UserFunction};
 

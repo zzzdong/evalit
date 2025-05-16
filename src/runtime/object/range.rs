@@ -128,6 +128,32 @@ impl Object for Range {
             )),
         }
     }
+
+    fn method_call(
+        &mut self,
+        method: &str,
+        args: &[ValueRef],
+    ) -> Result<Option<ValueRef>, RuntimeError> {
+        match method {
+            "len" => {
+                if args.is_empty() {
+                    let len = match self {
+                        Range::Normal { begin, end } => *end - *begin,
+                        Range::Inclusive { begin, end } => *end - *begin + 1,
+                        Range::From { begin } => i64::MAX - *begin,
+                        Range::To { end } => *end,
+                        Range::ToInclusive { end } => *end + 1,
+                        Range::Full => i64::MAX,
+                    };
+
+                    return Ok(Some(Value::new(len).into()));
+                }
+
+                Err(RuntimeError::invalid_argument_count(0, args.len()))
+            }
+            _ => Err(RuntimeError::missing_method::<Self>(method)),
+        }
+    }
 }
 
 // 辅助函数：检查索引是否有效

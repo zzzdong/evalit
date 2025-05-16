@@ -422,7 +422,7 @@ impl SemanticAnalyzer {
                         }
                     }
                     BinOp::LogicAnd | BinOp::LogicOr => {
-                        if lhs.ty != Type::Boolean || rhs.ty != Type::Boolean {
+                        if (lhs.ty != Type::Boolean || rhs.ty != Type::Boolean) && (lhs.ty != Type::Unknown || rhs.ty != Type::Unknown) {
                             return Err(CompileError::TypeMismatch {
                                 expected: Type::Boolean,
                                 actual: lhs.ty.clone(),

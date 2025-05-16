@@ -5,6 +5,7 @@ use crate::{
     ast::*,
     bytecode::{FunctionId, Opcode, Primitive},
     ir::{builder::*, instruction::*},
+    runtime::EnvVariable,
 };
 
 pub fn lowering(ast: Program, env: &Environment) -> Result<IrUnit, Error> {
@@ -446,12 +447,12 @@ impl<'a> ASTLower<'a> {
                     None => match self.symbols.get(ident) {
                         Some(var) => self.builder.make_call(var.0, args),
                         None => match self.env.get(ident) {
-                            Some(_) => {
+                            Some(EnvVariable::Function(_)) => {
                                 let callable =
                                     self.builder.load_external_variable(ident.to_string());
                                 self.builder.make_call_native(callable, args)
                             }
-                            None => {
+                            _ => {
                                 panic!("unknown identifier: {ident}");
                             }
                         },

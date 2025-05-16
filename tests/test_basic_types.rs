@@ -27,15 +27,17 @@ fn test_boolean() {
     let script = r#"
     return true;
     "#;
-    let retval = Interpreter::eval_script(script, env.clone())
-        .unwrap()
-        .unwrap();
+
+    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
     assert_eq!(retval, true);
+
+    let env = Environment::new();
 
     // 测试false
     let script = r#"
     return false;
     "#;
+
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
     assert_eq!(retval, false);
 }
@@ -46,21 +48,23 @@ fn test_integer() {
 
     let env = Environment::new();
 
-    // 测试正整数
-    let script = r#"
-    return 42;
-    "#;
-    let retval = Interpreter::eval_script(script, env.clone())
-        .unwrap()
-        .unwrap();
-    assert_eq!(retval, 42);
-
-    // 测试负整数
-    let script = r#"
+    {
+        // 测试正整数
+        let script = r#"
+        return 42;
+        "#;
+        let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+        assert_eq!(retval, 42);
+    }
+    {
+        let env = Environment::new();
+        // 测试负整数
+        let script = r#"
     return -17;
     "#;
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-    assert_eq!(retval, -17);
+        let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+        assert_eq!(retval, -17);
+    }
 }
 
 #[test]
@@ -262,73 +266,6 @@ fn test_map_methods() {
     }
     
     return has_Alice && has_30;
-    "#;
-
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
-
-    assert_eq!(retval, true);
-}
-
-#[test]
-fn test_range_operations() {
-    init_logger();
-
-    let env = Environment::new();
-
-    let script = r#"
-    // 测试不同形式的range
-    
-    // 简单range求和
-    let sum = 0;
-    for i in 0..5 {
-        sum += i;
-    }
-    if sum != 10 {
-        return false;
-    }
-    
-    // 测试包含上界的range
-    let sum = 0;
-    for i in 0..=5 {
-        sum += i;
-    }
-    if sum != 15 {
-        return false;
-    }
-    
-    // 测试带变量的range
-    let start = 2;
-    let end = 5;
-    let sum = 0;
-    for i in start..end {
-        sum += i;
-    }
-    if sum != 12 {
-        return false;
-    }
-    
-    // 测试空range
-    let count = 0;
-    for i in 5..3 {
-        count += 1;
-    }
-    if count != 0 {
-        return false;
-    }
-    
-    // 测试长度为0的range
-    let range = 0..0;
-    if range.len() != 0 {
-        return false;
-    }
-    
-    // 测试长度为非零的range
-    let range = 0..5;
-    if range.len() != 5 {
-        return false;
-    }
-    
-    return true;
     "#;
 
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();

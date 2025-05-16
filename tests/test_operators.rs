@@ -25,11 +25,11 @@ fn test_arithmetic_operators() {
     if 10 / 2 != 5 {
         return false;
     };
-    
+
     if 10 % 3 != 1 {
         return false;
     };
-    
+
     return true;
     "#;
     let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
@@ -231,7 +231,7 @@ fn test_range_operations() {
     for i in start..end {
         sum += i;
     }
-    if sum != 12 {
+    if sum != 9 {
         return false;
     }
     
@@ -269,7 +269,6 @@ fn test_slice_operations() {
     init_logger();
 
     let env = Environment::new();
-
 
     let script = r#"
     let array = [1, 2, 3, 4, 5];
