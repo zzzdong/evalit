@@ -45,7 +45,7 @@ impl Object for String {
     }
 
     fn make_slice(&self, range: ValueRef) -> Result<Value, RuntimeError> {
-        if let Some(range) = range.downcast_ref::<Range>() {
+        if let Some(range) = range.value().downcast_ref::<Range>() {
             let len = self.chars().count();
 
             let (start, end) = range.get_range(len)?;
@@ -160,29 +160,34 @@ static STRING_META_TABLE: std::sync::LazyLock<MetaTable<String>> = std::sync::La
         })
         .with_method("starts_with", |this: &mut String, args| {
             if args.len() == 1 {
-                let other = args[0].downcast_ref::<String>().unwrap();
+                let other = args[0].value();
+                let other = other.downcast_ref::<String>().unwrap();
                 return Ok(Some(ValueRef::new(this.starts_with(other.as_str()))));
             }
             Err(RuntimeError::invalid_argument_count(1, args.len()))
         })
         .with_method("ends_with", |this: &mut String, args| {
             if args.len() == 1 {
-                let other = args[0].downcast_ref::<String>().unwrap();
+                                let other = args[0].value();
+                let other = other.downcast_ref::<String>().unwrap();
                 return Ok(Some(ValueRef::new(this.ends_with(other.as_str()))));
             }
             Err(RuntimeError::invalid_argument_count(1, args.len()))
         })
         .with_method("contains", |this: &mut String, args| {
             if args.len() == 1 {
-                let other = args[0].downcast_ref::<String>().unwrap();
+                                let other = args[0].value();
+                let other = other.downcast_ref::<String>().unwrap();
                 return Ok(Some(ValueRef::new(this.contains(other.as_str()))));
             }
             Err(RuntimeError::invalid_argument_count(1, args.len()))
         })
         .with_method("replace", |this: &mut String, args| {
             if args.len() == 2 {
-                let old = args[0].downcast_ref::<String>().unwrap();
-                let new = args[1].downcast_ref::<String>().unwrap();
+                let old = args[0].value();
+                let old = old.downcast_ref::<String>().unwrap();
+                let new = args[1].value();
+                let new = new.downcast_ref::<String>().unwrap();
                 return Ok(Some(ValueRef::new(
                     this.replace(old.as_str(), new.as_str()),
                 )));
@@ -191,7 +196,8 @@ static STRING_META_TABLE: std::sync::LazyLock<MetaTable<String>> = std::sync::La
         })
         .with_method("split", |this: &mut String, args| {
             if args.len() == 1 {
-                let delimiter = args[0].downcast_ref::<String>().unwrap();
+                let delimiter = args[0].value();
+                let delimiter = delimiter.downcast_ref::<String>().unwrap();
                 return Ok(Some(ValueRef::new(
                     this.split(delimiter.as_str())
                         .map(|s| s.to_string())

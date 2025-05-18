@@ -28,7 +28,7 @@ impl<T: Object + Clone> Object for Vec<T> {
     fn index_set(&mut self, index: &Value, value: ValueRef) -> Result<(), RuntimeError> {
         if let Some(index) = index.downcast_ref::<i64>() {
             if *index >= 0 && *index < self.len() as i64 {
-                if let Some(value) = value.downcast_ref::<T>() {
+                if let Some(value) = value.value().downcast_ref::<T>() {
                     self[*index as usize] = value.clone();
                     return Ok(());
                 } else {
@@ -54,7 +54,7 @@ impl<T: Object + Clone> Object for Vec<T> {
     }
 
     fn make_slice(&self, range: ValueRef) -> Result<Value, RuntimeError> {
-        if let Some(range) = range.downcast_ref::<Range>() {
+        if let Some(range) = range.value().downcast_ref::<Range>() {
             let (start, end) = range.get_range(self.len())?;
 
             // 创建新的Vec并复制切片内容
@@ -91,7 +91,7 @@ impl<T: Object + Clone> Object for Vec<T> {
             }
             "push" => {
                 if args.len() == 1 {
-                    return match args[0].downcast_ref::<T>() {
+                    return match args[0].value().downcast_ref::<T>() {
                         Some(item) => {
                             self.push(item.clone());
                             Ok(None)
@@ -112,7 +112,7 @@ impl<T: Object + Clone> Object for Vec<T> {
             }
             "remove" => {
                 if args.len() == 1 {
-                    if let Some(index) = args[0].downcast_ref::<i64>() {
+                    if let Some(index) = args[0].value().downcast_ref::<i64>() {
                         if *index >= 0 && *index < self.len() as i64 {
                             let removed = self.remove(*index as usize);
                             return Ok(Some(ValueRef::new(removed)));
@@ -181,7 +181,7 @@ impl Object for Vec<ValueRef> {
     }
 
     fn make_slice(&self, range: ValueRef) -> Result<Value, RuntimeError> {
-        if let Some(range) = range.downcast_ref::<Range>() {
+        if let Some(range) = range.value().downcast_ref::<Range>() {
             let (start, end) = range.get_range(self.len())?;
 
             // 创建新的Vec并复制切片内容
@@ -239,7 +239,7 @@ static ARRAY_METATABLE: std::sync::LazyLock<MetaTable<Vec<ValueRef>>> =
             })
             .with_method("remove", |this: &mut Vec<ValueRef>, args| {
                 if args.len() == 1 {
-                    if let Some(index) = args[0].downcast_ref::<i64>() {
+                    if let Some(index) = args[0].value().downcast_ref::<i64>() {
                         if *index >= 0 && *index < this.len() as i64 {
                             let removed = this.remove(*index as usize);
                             return Ok(Some(removed));

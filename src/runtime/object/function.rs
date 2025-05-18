@@ -111,7 +111,8 @@ where
     T: Object + Clone,
 {
     fn from_value(value: &ValueRef) -> Result<T, RuntimeError> {
-        let value = value
+        let v = value.value();
+        let value = v
             .downcast_ref::<T>()
             .ok_or(RuntimeError::invalid_type::<T>(value))?;
 

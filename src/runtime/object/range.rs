@@ -15,12 +15,12 @@ pub enum Range {
 
 impl Range {
     pub fn new(begin: ValueRef, end: ValueRef) -> Result<Self, RuntimeError> {
-        let begin = match begin.clone().downcast_ref::<i64>() {
+        let begin = match begin.clone().value().downcast_ref::<i64>() {
             Some(begin) => *begin,
             None => return Err(RuntimeError::invalid_type::<i64>(begin)),
         };
 
-        let end = match end.clone().downcast_ref::<i64>() {
+        let end = match end.clone().value().downcast_ref::<i64>() {
             Some(end) => *end,
             None => return Err(RuntimeError::invalid_type::<i64>(end)),
         };
@@ -29,12 +29,12 @@ impl Range {
     }
 
     pub fn inclusive(begin: ValueRef, end: ValueRef) -> Result<Self, RuntimeError> {
-        let begin = match begin.clone().downcast_ref::<i64>() {
+        let begin = match begin.clone().value().downcast_ref::<i64>() {
             Some(begin) => *begin,
             None => return Err(RuntimeError::invalid_type::<i64>(begin)),
         };
 
-        let end = match end.clone().downcast_ref::<i64>() {
+        let end = match end.clone().value().downcast_ref::<i64>() {
             Some(end) => *end,
             None => return Err(RuntimeError::invalid_type::<i64>(end)),
         };
@@ -47,7 +47,7 @@ impl Range {
     }
 
     pub fn range_from(begin: ValueRef) -> Result<Self, RuntimeError> {
-        let begin = match begin.clone().downcast_ref::<i64>() {
+        let begin = match begin.clone().value().downcast_ref::<i64>() {
             Some(begin) => *begin,
             None => return Err(RuntimeError::invalid_type::<i64>(begin)),
         };
@@ -56,7 +56,7 @@ impl Range {
     }
 
     pub fn range_to(end: ValueRef) -> Result<Self, RuntimeError> {
-        let end = match end.clone().downcast_ref::<i64>() {
+        let end = match end.clone().value().downcast_ref::<i64>() {
             Some(end) => *end,
             None => return Err(RuntimeError::invalid_type::<i64>(end)),
         };
@@ -64,7 +64,7 @@ impl Range {
     }
 
     pub fn range_to_inclusive(end: ValueRef) -> Result<Self, RuntimeError> {
-        let end = match end.clone().downcast_ref::<i64>() {
+        let end = match end.clone().value().downcast_ref::<i64>() {
             Some(end) => *end,
             None => return Err(RuntimeError::invalid_type::<i64>(end)),
         };

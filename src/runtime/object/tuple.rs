@@ -65,7 +65,7 @@ macro_rules! impl_object_for_object_tuple {
     ($n: expr, $($idx: tt => $t: ident),+) => {
         impl<$($t,)*> Object for ($($t,)*)
         where
-            $($t: Object + Clone),*
+            $($t: Object + Send + Clone),*
         {
             fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
                 write!(f, "({:?}, {:?})", self.0, self.1)

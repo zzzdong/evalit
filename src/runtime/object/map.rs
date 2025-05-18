@@ -28,7 +28,7 @@ where
 
     fn index_set(&mut self, index: &Value, value: ValueRef) -> Result<(), RuntimeError> {
         if let Some(key) = index.downcast_ref::<K>() {
-            if let Some(value) = value.downcast_ref::<V>() {
+            if let Some(value) = value.value().downcast_ref::<V>() {
                 self.insert(key.clone(), value.clone());
                 return Ok(());
             }
@@ -96,7 +96,7 @@ where
             }
             "insert" => {
                 if args.len() == 2 {
-                    match args[0].downcast_ref::<K>() {
+                    match args[0].value().downcast_ref::<K>() {
                         Some(key) => {
                             self.insert(key.clone(), args[1].clone());
                             return Ok(None);
@@ -112,7 +112,7 @@ where
             }
             "remove" => {
                 if args.len() == 1 {
-                    match args[0].downcast_ref::<K>() {
+                    match args[0].value().downcast_ref::<K>() {
                         Some(key) => {
                             self.remove(&key);
                             return Ok(None);

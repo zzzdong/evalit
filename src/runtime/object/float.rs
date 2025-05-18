@@ -88,7 +88,7 @@ impl Object for f32 {
             "atan" => Ok(Some(ValueRef::new(self.atan()))),
             "log" => {
                 if args.len() == 1 {
-                    match args[0].downcast_ref::<f32>() {
+                    match args[0].value().downcast_ref::<f32>() {
                         Some(base) => Ok(Some(ValueRef::new(self.log(*base)))),
                         None => Err(RuntimeError::invalid_argument::<f32>(0, &args[0])),
                     }
@@ -180,7 +180,7 @@ impl Object for f64 {
             "atan" => Ok(Some(ValueRef::new(self.atan()))),
             "log" => {
                 if args.len() == 1 {
-                    match args[0].downcast_ref::<f64>() {
+                    match args[0].value().downcast_ref::<f64>() {
                         Some(base) => Ok(Some(ValueRef::new(self.log(*base)))),
                         None => Err(RuntimeError::invalid_argument::<f64>(0, &args[0])),
                     }

@@ -153,7 +153,7 @@ impl<'a> VM<'a> {
                 },
                 Operand::Register(_) | Operand::Stack(_) => {
                     let value = self.get_value(operands[0])?;
-                    match value.downcast_ref::<UserFunction>() {
+                    match value.value().downcast_ref::<UserFunction>() {
                         Some(func) => match self.program.symtab.get(&func.id()) {
                             Some(location) => {
                                 self.state.pushc(self.state.pc() + 1)?;
@@ -183,7 +183,7 @@ impl<'a> VM<'a> {
 
             Opcode::BrIf => {
                 let cond = self.get_value(operands[0])?;
-                match cond.downcast_ref::<bool>() {
+                match cond.value().downcast_ref::<bool>() {
                     Some(b) => {
                         let offset = if *b {
                             operands[1].as_immd()
@@ -266,50 +266,50 @@ impl<'a> VM<'a> {
             Opcode::Addx => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let value = lhs.borrow().add(&rhs.value())?;
+                let value = lhs.value().as_object().add(&rhs.value())?;
                 self.set_value(operands[0], value)?;
             }
             Opcode::Subx => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let value = lhs.borrow().sub(&rhs.value())?;
+                let value = lhs.value().as_object().sub(&rhs.value())?;
                 self.set_value(operands[0], value)?;
             }
             Opcode::Mulx => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let value = lhs.borrow().mul(&rhs.value())?;
+                let value = lhs.value().as_object().mul(&rhs.value())?;
                 self.set_value(operands[0], value)?;
             }
             Opcode::Divx => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let value = lhs.borrow().div(&rhs.value())?;
+                let value = lhs.value().as_object().div(&rhs.value())?;
                 self.set_value(operands[0], value)?;
             }
             Opcode::Remx => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let value = lhs.borrow().rem(&rhs.value())?;
+                let value = lhs.value().as_object().rem(&rhs.value())?;
                 self.set_value(operands[0], value)?;
             }
 
             // Logical Operations
             Opcode::Not | Opcode::Neg => {
                 let value = self.get_value(operands[1])?;
-                let value = value.borrow().negate()?;
+                let value = value.value().as_object().negate()?;
                 self.set_value(operands[0], ValueRef::from(value))?;
             }
             Opcode::And => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let value = lhs.borrow().logic_and(&rhs.value())?;
+                let value = lhs.value().as_object().logic_and(&rhs.value())?;
                 self.set_value(operands[0], value)?;
             }
             Opcode::Or => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let value = lhs.borrow().logic_or(&rhs.value())?;
+                let value = lhs.value().as_object().logic_or(&rhs.value())?;
                 self.set_value(operands[0], value)?;
             }
 
@@ -317,7 +317,7 @@ impl<'a> VM<'a> {
             Opcode::Greater => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let ordering = lhs.borrow().compare(&rhs.value())?;
+                let ordering = lhs.value().as_object().compare(&rhs.value())?;
                 self.set_value(
                     operands[0],
                     ValueRef::new(ordering == std::cmp::Ordering::Greater),
@@ -326,7 +326,7 @@ impl<'a> VM<'a> {
             Opcode::GreaterEqual => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let ordering = lhs.borrow().compare(&rhs.value())?;
+                let ordering = lhs.value().as_object().compare(&rhs.value())?;
                 self.set_value(
                     operands[0],
                     ValueRef::new(
@@ -339,7 +339,7 @@ impl<'a> VM<'a> {
             Opcode::Less => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let ordering = lhs.borrow().compare(&rhs.value())?;
+                let ordering = lhs.value().as_object().compare(&rhs.value())?;
                 self.set_value(
                     operands[0],
                     ValueRef::new(ordering == std::cmp::Ordering::Less),
@@ -349,7 +349,7 @@ impl<'a> VM<'a> {
             Opcode::LessEqual => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let ordering = lhs.borrow().compare(&rhs.value())?;
+                let ordering = lhs.value().as_object().compare(&rhs.value())?;
                 self.set_value(
                     operands[0],
                     ValueRef::new(
@@ -362,14 +362,14 @@ impl<'a> VM<'a> {
             Opcode::Equal => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let eq = lhs.borrow().equal(&rhs.value())?;
+                let eq = lhs.value().as_object().equal(&rhs.value())?;
                 self.set_value(operands[0], eq)?;
             }
 
             Opcode::NotEqual => {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
-                let eq = lhs.borrow().equal(&rhs.value())?;
+                let eq = lhs.value().as_object().equal(&rhs.value())?;
                 let not_eq = !*eq.downcast_ref::<bool>().unwrap();
                 self.set_value(operands[0], Value::new(not_eq))?;
             }
@@ -406,10 +406,11 @@ impl<'a> VM<'a> {
             }
 
             Opcode::ArrayPush => {
-                let mut array = self.get_value(operands[0])?;
+                let array = self.get_value(operands[0])?;
                 let value = self.get_value(operands[1])?;
                 let array_cloned = array.clone();
-                let mut array = array
+                let mut array = array.value_mut();
+                let array = array
                     .downcast_mut::<Vec<ValueRef>>()
                     .ok_or(RuntimeError::invalid_type::<Vec<ValueRef>>(array_cloned))?;
                 array.push(value);
@@ -424,7 +425,7 @@ impl<'a> VM<'a> {
                 let object = self.get_value(operands[1])?;
                 let range = self.get_value(operands[2])?;
 
-                let slice = object.borrow().make_slice(range)?;
+                let slice = object.value().as_object().make_slice(range)?;
                 self.set_value(operands[0], slice)?;
             }
 
@@ -432,13 +433,16 @@ impl<'a> VM<'a> {
                 let mut object = self.get_value(operands[0])?;
                 let index = self.get_value(operands[1])?;
                 let value = self.get_value(operands[2])?;
-                object.borrow_mut().index_set(&index.value(), value)?;
+                object
+                    .value_mut()
+                    .as_object_mut()
+                    .index_set(&index.value(), value)?;
             }
 
             Opcode::IndexGet => {
                 let object = self.get_value(operands[1])?;
                 let index = self.get_value(operands[2])?;
-                let value = object.borrow().index_get(&index.value())?;
+                let value = object.value().as_object().index_get(&index.value())?;
                 self.set_value(operands[0], value)?;
             }
 
@@ -446,16 +450,19 @@ impl<'a> VM<'a> {
                 let object = self.get_value(operands[1])?;
                 let prop = self.load_string(operands[2])?;
 
-                let value = object.borrow().property_get(&prop)?;
+                let value = object.value().as_object().property_get(&prop)?;
 
                 self.set_value(operands[0], value)?;
             }
             Opcode::PropSet => {
-                let mut object = self.get_value(operands[0])?;
+                let object = self.get_value(operands[0])?;
                 let prop = self.load_string(operands[1])?;
                 let value = self.get_value(operands[2])?;
 
-                object.borrow_mut().property_set(&prop, value)?;
+                object
+                    .value_mut()
+                    .as_object_mut()
+                    .property_set(&prop, value)?;
             }
 
             // Range Operations
@@ -499,12 +506,12 @@ impl<'a> VM<'a> {
             // Iteration Support
             Opcode::MakeIter => {
                 let obj = self.get_value(operands[1])?;
-                match obj.downcast_ref::<Enumerator>() {
+                match obj.value().downcast_ref::<Enumerator>() {
                     Some(_) => {
                         self.set_value(operands[0], obj.clone())?;
                     }
                     None => {
-                        let iterator = obj.borrow().make_iterator()?;
+                        let iterator = obj.value().as_object().make_iterator()?;
                         self.set_value(operands[0], ValueRef::new(Enumerator::new(iterator)))?;
                     }
                 }
@@ -512,7 +519,7 @@ impl<'a> VM<'a> {
 
             Opcode::IterNext => {
                 let mut iterator = self.get_value(operands[1])?;
-                let next = iterator.borrow_mut().iterate_next()?;
+                let next = iterator.value_mut().as_object_mut().iterate_next()?;
                 self.set_value(operands[0], Value::new(next))?;
             }
 
@@ -528,7 +535,10 @@ impl<'a> VM<'a> {
                     let arg = self.get_value(Operand::Stack(offset))?;
                     args.push(arg);
                 }
-                let ret = object.borrow_mut().method_call(&prop, &args)?;
+                let ret = object
+                    .value_mut()
+                    .as_object_mut()
+                    .method_call(&prop, &args)?;
                 let ret = ret.unwrap_or(ValueRef::null());
                 self.state.set_register(Register::Rv, ret)?;
             }
@@ -537,7 +547,7 @@ impl<'a> VM<'a> {
             Opcode::CallNative => {
                 let mut func = self.get_value(operands[0])?;
                 let arg_count = operands[1].as_immd() as usize;
-                match func.downcast_mut::<NativeFunction>() {
+                match func.value_mut().downcast_mut::<NativeFunction>() {
                     Some(mut func) => {
                         // load args from stack
                         let mut args = Vec::with_capacity(arg_count);
