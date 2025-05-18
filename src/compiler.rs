@@ -1,5 +1,8 @@
+mod ast;
 mod codegen;
+mod ir;
 mod lowering;
+mod parser;
 mod regalloc;
 mod semantic;
 
@@ -7,15 +10,16 @@ use std::collections::HashMap;
 
 use log::debug;
 
-use crate::ast::{ParseError, Span, Type};
+use crate::Environment;
 use crate::bytecode::{Module, Register};
-use crate::{Environment, Error};
+use ast::syntax::{Span, Type};
+use parser::ParseError;
 
 use codegen::Codegen;
 use lowering::lowering;
 use semantic::SemanticAnalyzer;
 
-pub fn compile(script: &str, env: &crate::Environment) -> Result<crate::Module, crate::Error> {
+pub fn compile(script: &str, env: &crate::Environment) -> Result<crate::Module, CompileError> {
     Compiler::new().compile(script, env)
 }
 
@@ -25,7 +29,6 @@ pub enum CompileError {
     Semantics(String),
     UndefinedVariable {
         name: String,
-        span: Span,
     },
     TypeMismatch {
         expected: Type,
@@ -37,7 +40,6 @@ pub enum CompileError {
     ArgumentCountMismatch {
         expected: usize,
         actual: usize,
-        span: Span,
     },
     NotCallable {
         ty: Type,
@@ -53,6 +55,9 @@ pub enum CompileError {
     ReturnOutsideFunction {
         span: Span,
     },
+    InvalidOperation {
+        message: String,
+    },
 }
 
 impl From<ParseError> for CompileError {
@@ -66,8 +71,8 @@ impl std::fmt::Display for CompileError {
         match self {
             CompileError::Parse(error) => write!(f, "Parse error: {error}"),
             CompileError::Semantics(message) => write!(f, "Semantics error: {message}"),
-            CompileError::UndefinedVariable { name, span } => {
-                write!(f, "Undefined variable `{name}` at {span:?}")
+            CompileError::UndefinedVariable { name } => {
+                write!(f, "Undefined variable `{name}`")
             }
             CompileError::TypeMismatch {
                 expected,
@@ -79,13 +84,9 @@ impl std::fmt::Display for CompileError {
             ),
             CompileError::TypeInference(message) => write!(f, "Type inference error: {message}"),
             CompileError::TypeCheck(message) => write!(f, "Type check error: {message}"),
-            CompileError::ArgumentCountMismatch {
-                expected,
-                actual,
-                span,
-            } => write!(
+            CompileError::ArgumentCountMismatch { expected, actual } => write!(
                 f,
-                "Argument count mismatch: expected {expected}, actual {actual} at {span:?}"
+                "Argument count mismatch: expected {expected}, actual {actual}"
             ),
             CompileError::NotCallable { ty, span } => {
                 write!(f, "Not callable: `{ty:?}` at {span:?}")
@@ -97,6 +98,9 @@ impl std::fmt::Display for CompileError {
             }
             CompileError::ReturnOutsideFunction { span } => {
                 write!(f, "Return outside function at {span:?}")
+            }
+            CompileError::InvalidOperation { message } => {
+                write!(f, "Invalid operation, {message}")
             }
         }
     }
@@ -117,9 +121,9 @@ impl Compiler {
         Self {}
     }
 
-    pub fn compile(&self, input: &str, env: &Environment) -> Result<Module, Error> {
+    pub fn compile(&self, input: &str, env: &Environment) -> Result<Module, CompileError> {
         // 解析输入
-        let mut ast = crate::ast::parse_file(input)?;
+        let mut ast = parser::parse_file(input)?;
 
         debug!("AST: {ast:?}");
 

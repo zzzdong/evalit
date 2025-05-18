@@ -3,10 +3,8 @@ use std::collections::HashMap;
 use log::{debug, trace};
 use petgraph::visit::DfsPostOrder;
 
-use crate::{
-    bytecode::{Bytecode, Opcode, Operand, Register},
-    ir::instruction::{Block, ControlFlowGraph, Instruction, Value},
-};
+use super::ir::instruction::{Block, ControlFlowGraph, Instruction, Value};
+use crate::bytecode::{Bytecode, Opcode, Operand, Register};
 
 use super::regalloc::{Action, RegAlloc};
 

@@ -7,10 +7,8 @@ use std::{
 use log::trace;
 use petgraph::Direction::Outgoing;
 
-use crate::{
-    bytecode::{MIN_REQUIRED_REGISTER, Register},
-    ir::instruction::{Block, BlockId, ControlFlowGraph, Instruction, Value},
-};
+use super::ir::instruction::{Block, BlockId, ControlFlowGraph, Instruction, Value};
+use crate::bytecode::{MIN_REQUIRED_REGISTER, Register};
 
 #[derive(Debug, Clone)]
 pub struct LiveRange {

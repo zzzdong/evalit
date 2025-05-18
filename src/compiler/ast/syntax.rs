@@ -71,7 +71,6 @@ impl Span {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
-    Void,
     Null,
     Boolean,
     Byte,
@@ -83,35 +82,57 @@ pub enum Type {
         params: Vec<Option<Type>>,
         return_ty: Option<Box<Type>>,
     },
-    DynObject,
     Range,
-    EnvObject,
+    Tuple(Vec<Type>),
+    Array(Box<Type>),
+    Map(Box<Type>),
+    Any,
     Unknown,
 }
 
 impl Type {
     pub fn is_boolean(&self) -> bool {
-        matches!(self, Type::Boolean | Type::Void | Type::Unknown)
+        matches!(self, Type::Boolean)
     }
 
     pub fn is_numeric(&self) -> bool {
-        matches!(self, Type::Byte | Type::Integer | Type::Float | Type::Void)
+        matches!(self, Type::Byte | Type::Integer | Type::Float)
     }
 
     pub fn is_string(&self) -> bool {
         matches!(self, Type::String)
     }
 
-    pub fn is_object(&self) -> bool {
-        matches!(self, Type::DynObject)
+    pub fn is_unknown(&self) -> bool {
+        matches!(self, Type::Unknown)
+    }
+
+    pub fn is_collection(&self) -> bool {
+        matches!(self, Type::Array(_) | Type::Map(_))
+    }
+
+    pub fn is_any(&self) -> bool {
+        matches!(self, Type::Any)
     }
 
     pub fn is_function(&self) -> bool {
         matches!(self, Type::Function { .. })
     }
 
-    pub fn is_unknown(&self) -> bool {
-        matches!(self, Type::Unknown)
+    pub fn get_array_element_type(&self) -> Option<&Type> {
+        if let Type::Array(ty) = self {
+            Some(ty.as_ref())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_map_value_type(&self) -> Option<&Type> {
+        if let Type::Map(ty) = self {
+            Some(ty.as_ref())
+        } else {
+            None
+        }
     }
 }
 
@@ -255,8 +276,6 @@ pub enum Expression {
     Array(ArrayExpression),
     Map(MapExpression),
     Closure(ClosureExpression),
-    Member(MemberExpression),
-    Index(IndexExpression),
     Range(RangeExpression),
     Slice(SliceExpression),
     Assign(AssignExpression),
@@ -265,6 +284,11 @@ pub enum Expression {
     Await(Box<ExpressionNode>),
     Prefix(PrefixExpression),
     Binary(BinaryExpression),
+    IndexGet(IndexGetExpression),
+    IndexSet(IndexSetExpression),
+    PropertyGet(PropertyGetExpression),
+    PropertySet(PropertySetExpression),
+    MethodCall(MethodCallExpression),
 }
 
 impl Expression {
@@ -293,21 +317,9 @@ pub struct AssignExpression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct MemberExpression {
-    pub object: Box<ExpressionNode>,
-    pub property: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct CallExpression {
     pub func: Box<ExpressionNode>,
     pub args: Vec<ExpressionNode>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct IndexExpression {
-    pub object: Box<ExpressionNode>,
-    pub index: Box<ExpressionNode>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -488,4 +500,37 @@ pub enum PathSeg {
     Super,
     Self_,
     Crate,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexGetExpression {
+    pub object: Box<ExpressionNode>,
+    pub index: Box<ExpressionNode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexSetExpression {
+    pub object: Box<ExpressionNode>,
+    pub index: Box<ExpressionNode>,
+    pub value: Box<ExpressionNode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyGetExpression {
+    pub object: Box<ExpressionNode>,
+    pub property: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertySetExpression {
+    pub object: Box<ExpressionNode>,
+    pub property: String,
+    pub value: Box<ExpressionNode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct MethodCallExpression {
+    pub object: Box<ExpressionNode>,
+    pub method: String,
+    pub args: Vec<ExpressionNode>,
 }

@@ -1,14 +1,15 @@
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
+use super::CompileError;
+use super::ast::syntax::*;
+use super::ir::{builder::*, instruction::*};
 use crate::{
-    Environment, Error,
-    ast::*,
+    Environment,
     bytecode::{FunctionId, Opcode, Primitive},
-    ir::{builder::*, instruction::*},
     runtime::EnvVariable,
 };
 
-pub fn lowering(ast: Program, env: &Environment) -> Result<IrUnit, Error> {
+pub fn lowering(ast: Program, env: &Environment) -> Result<IrUnit, CompileError> {
     let mut unit = IrUnit::new();
 
     let builder: &mut dyn InstBuilder = &mut IrBuilder::new(&mut unit);
@@ -388,41 +389,91 @@ impl<'a> ASTLower<'a> {
             Expression::Identifier(identifier) => self.lower_identifier(identifier),
             Expression::Prefix(expr) => self.lower_unary(expr),
             Expression::Binary(expr) => self.lower_binary(expr),
-            Expression::Member(member) => self.lower_get_property(member),
             Expression::Call(call) => self.lower_call(call),
             Expression::Assign(assign) => self.lower_assign(assign),
             Expression::Closure(closure) => self.lower_closure(closure),
             Expression::Array(array) => self.lower_array(array),
-            Expression::Index(index) => self.lower_index(index),
             Expression::Map(map) => self.lower_map(map),
             Expression::Slice(slice) => self.lower_slice(slice),
             Expression::Await(expr) => self.lower_await(*expr),
+            Expression::Environment(env) => self.lower_environment(env),
+            Expression::IndexGet(expr) => self.lower_index_get(expr),
+            Expression::IndexSet(expr) => self.lower_index_set(expr),
+            Expression::PropertyGet(expr) => self.lower_get_property(expr),
+            Expression::PropertySet(expr) => self.lower_set_property(expr),
+            Expression::MethodCall(expr) => self.lower_method_call(expr),
             _ => unimplemented!("{:?}", expr),
         }
     }
 
-    fn lower_index_set(&mut self, expr: IndexExpression, value: Value) {
-        let IndexExpression { object, index } = expr;
+    fn lower_environment(&mut self, env: EnvironmentExpression) -> Value {
+        let EnvironmentExpression(env) = env;
+
+        self.builder.load_external_variable(env)
+    }
+
+    fn lower_index_get(&mut self, expr: IndexGetExpression) -> Value {
+        let IndexGetExpression { object, index } = expr;
 
         let object = self.lower_expression(*object);
         let index = self.lower_expression(*index);
-        self.builder.index_set(object, index, value);
+        self.builder.index_get(object, index)
     }
 
-    fn lower_get_property(&mut self, expr: MemberExpression) -> Value {
-        let MemberExpression { object, property } = expr;
+    fn lower_index_set(&mut self, expr: IndexSetExpression) -> Value {
+        let IndexSetExpression {
+            object,
+            index,
+            value,
+        } = expr;
+
+        let value = self.lower_expression(*value);
+        let object = self.lower_expression(*object);
+        let index = self.lower_expression(*index);
+        self.builder.index_set(object, index, value);
+
+        value
+    }
+
+    fn lower_get_property(&mut self, expr: PropertyGetExpression) -> Value {
+        let PropertyGetExpression { object, property } = expr;
 
         let object = self.lower_expression(*object);
 
         self.builder.get_property(object, &property)
     }
 
-    fn lower_set_property(&mut self, expr: MemberExpression, value: Value) {
-        let MemberExpression { object, property } = expr;
+    fn lower_set_property(&mut self, expr: PropertySetExpression) -> Value {
+        let PropertySetExpression {
+            object,
+            property,
+            value,
+        } = expr;
+
+        let value = self.lower_expression(*value);
 
         let object = self.lower_expression(*object);
 
-        self.builder.set_property(object, &property, value)
+        self.builder.set_property(object, &property, value);
+
+        value
+    }
+
+    fn lower_method_call(&mut self, expr: MethodCallExpression) -> Value {
+        let MethodCallExpression {
+            object,
+            method,
+            args,
+        } = expr;
+
+        let args: Vec<Value> = args
+            .into_iter()
+            .map(|arg| self.lower_expression(arg))
+            .collect();
+
+        let object = self.lower_expression(*object);
+
+        self.builder.call_property(object, &method, args)
     }
 
     fn lower_call(&mut self, expr: CallExpression) -> Value {
@@ -434,13 +485,6 @@ impl<'a> ASTLower<'a> {
             .collect();
 
         match func.node {
-            Expression::Member(member) => {
-                let MemberExpression { object, property } = member;
-
-                let object = self.lower_expression(*object);
-
-                self.builder.call_property(object, &property, args)
-            }
             Expression::Identifier(IdentifierExpression(ref ident)) => {
                 match self.builder.module().find_function(ident) {
                     Some(func) => self.builder.call_function(func.id, args),
@@ -470,21 +514,9 @@ impl<'a> ASTLower<'a> {
 
         let value = self.lower_expression(*value);
 
-        match object.node {
-            Expression::Member(member) => {
-                self.lower_set_property(member, value);
-                value
-            }
-            Expression::Index(expr) => {
-                self.lower_index_set(expr, value);
-                value
-            }
-            _ => {
-                let object = self.lower_expression(*object);
-                self.builder.assign(object, value);
-                value
-            }
-        }
+        let object = self.lower_expression(*object);
+        self.builder.assign(object, value);
+        value
     }
 
     fn lower_closure(&mut self, expr: ClosureExpression) -> Value {
@@ -526,15 +558,6 @@ impl<'a> ASTLower<'a> {
         let promise = self.lower_expression(expr);
 
         self.builder.await_promise(promise)
-    }
-
-    fn lower_index(&mut self, expr: IndexExpression) -> Value {
-        let IndexExpression { object, index } = expr;
-
-        let object = self.lower_expression(*object);
-
-        let index = self.lower_expression(*index);
-        self.builder.index_get(object, index)
     }
 
     fn lower_range(&mut self, expr: RangeExpression) -> Value {
