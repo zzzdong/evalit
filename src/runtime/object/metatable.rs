@@ -2,7 +2,6 @@ use std::{collections::HashMap, fmt::Debug};
 
 use crate::{RuntimeError, Value, ValueRef};
 
-use super::Object;
 
 type Method<T> = fn(&mut T, &[ValueRef]) -> Result<Option<ValueRef>, RuntimeError>;
 type Getter<T> = fn(&T) -> Result<Value, RuntimeError>;
@@ -99,84 +98,84 @@ impl<T> MetaProperty<T> {
     }
 }
 
-pub trait MetaObject<T>: std::fmt::Debug + std::any::Any {
-    fn get_meta_table(&self) -> &MetaTable<T>;
-}
+// pub trait MetaObject<T>: std::fmt::Debug + std::any::Any {
+//     fn get_meta_table(&self) -> &MetaTable<T>;
+// }
 
-impl<T: 'static> Object for dyn MetaObject<T> {
-    fn property_get(&self, member: &str) -> Result<Value, RuntimeError> {
-        match self.get_meta_table().properties.get(member) {
-            Some(property) => match property.getter {
-                Some(getter) => getter((self as &dyn std::any::Any).downcast_ref::<T>().unwrap()),
-                None => Err(RuntimeError::missing_property_getter::<T>(member)),
-            },
-            None => Err(RuntimeError::missing_property::<T>(member)),
-        }
-    }
+// impl<T: Send + Sync + 'static> Object for dyn MetaObject<T> {
+//     fn property_get(&self, member: &str) -> Result<Value, RuntimeError> {
+//         match self.get_meta_table().properties.get(member) {
+//             Some(property) => match property.getter {
+//                 Some(getter) => getter((self as &dyn std::any::Any).downcast_ref::<T>().unwrap()),
+//                 None => Err(RuntimeError::missing_property_getter::<T>(member)),
+//             },
+//             None => Err(RuntimeError::missing_property::<T>(member)),
+//         }
+//     }
 
-    fn property_set(&mut self, member: &str, value: ValueRef) -> Result<(), RuntimeError> {
-        match self.get_meta_table().properties.get(member) {
-            Some(property) => match property.setter {
-                Some(setter) => setter(
-                    (self as &mut dyn std::any::Any)
-                        .downcast_mut::<T>()
-                        .unwrap(),
-                    value.take(),
-                ),
-                None => Err(RuntimeError::missing_property_setter::<T>(member)),
-            },
-            None => Err(RuntimeError::missing_property::<T>(member)),
-        }
-    }
+//     fn property_set(&mut self, member: &str, value: ValueRef) -> Result<(), RuntimeError> {
+//         match self.get_meta_table().properties.get(member) {
+//             Some(property) => match property.setter {
+//                 Some(setter) => setter(
+//                     (self as &mut dyn std::any::Any)
+//                         .downcast_mut::<T>()
+//                         .unwrap(),
+//                     value.take(),
+//                 ),
+//                 None => Err(RuntimeError::missing_property_setter::<T>(member)),
+//             },
+//             None => Err(RuntimeError::missing_property::<T>(member)),
+//         }
+//     }
 
-    fn method_call(
-        &mut self,
-        method: &str,
-        args: &[ValueRef],
-    ) -> Result<Option<ValueRef>, RuntimeError> {
-        match self.get_meta_table().methods.get(method) {
-            Some(method) => (method)(
-                (self as &mut dyn std::any::Any)
-                    .downcast_mut::<T>()
-                    .unwrap(),
-                args,
-            ),
-            None => Err(RuntimeError::missing_method::<T>(method)),
-        }
-    }
-}
+//     fn method_call(
+//         &mut self,
+//         method: &str,
+//         args: &[ValueRef],
+//     ) -> Result<Option<ValueRef>, RuntimeError> {
+//         match self.get_meta_table().methods.get(method) {
+//             Some(method) => (method)(
+//                 (self as &mut dyn std::any::Any)
+//                     .downcast_mut::<T>()
+//                     .unwrap(),
+//                 args,
+//             ),
+//             None => Err(RuntimeError::missing_method::<T>(method)),
+//         }
+//     }
+// }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
 
-    #[test]
-    fn test_metatable() {
-        #[derive(Debug)]
-        struct Request {}
+//     #[test]
+//     fn test_metatable() {
+//         #[derive(Debug)]
+//         struct Request {}
 
-        impl MetaObject<Request> for Request {
-            fn get_meta_table(&self) -> &MetaTable<Request> {
-                static META_TABLE: std::sync::LazyLock<MetaTable<Request>> =
-                    std::sync::LazyLock::new(|| {
-                        let mut table = MetaTable::new("Request");
-                        table.add_property(MetaProperty::new(
-                            "method",
-                            Some(|_| Ok(Value::new("GET"))),
-                            None,
-                        ));
-                        table
-                    });
-                &META_TABLE
-            }
-        }
+//         impl MetaObject<Request> for Request {
+//             fn get_meta_table(&self) -> &MetaTable<Request> {
+//                 static META_TABLE: std::sync::LazyLock<MetaTable<Request>> =
+//                     std::sync::LazyLock::new(|| {
+//                         let mut table = MetaTable::new("Request");
+//                         table.add_property(MetaProperty::new(
+//                             "method",
+//                             Some(|_| Ok(Value::new("GET"))),
+//                             None,
+//                         ));
+//                         table
+//                     });
+//                 &META_TABLE
+//             }
+//         }
 
-        let req = Request {};
+//         let req = Request {};
 
-        let dyn_obj = &req as &dyn MetaObject<Request>;
+//         let dyn_obj = &req as &dyn MetaObject<Request>;
 
-        let method = dyn_obj.property_get("method").unwrap();
+//         let method = dyn_obj.property_get("method").unwrap();
 
-        assert_eq!(method, "GET");
-    }
-}
+//         assert_eq!(method, "GET");
+//     }
+// }

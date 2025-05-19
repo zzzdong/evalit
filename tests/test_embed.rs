@@ -4,17 +4,11 @@ use std::sync::Arc;
 use evalit::{Environment, Error, Module, Object, RuntimeError, VM, Value, ValueRef, compile};
 use utils::init_logger;
 
-fn run_vm(program: &Module, env: Environment) -> Result<Value, Error> {
-    #[cfg(feature = "async")]
+fn run_vm(program: Arc<Module>, env: Environment) -> Result<Value, Error> {
     let ret = futures::executor::block_on(async {
         let mut vm = VM::new(program, env);
         vm.run().await
     })?;
-    #[cfg(not(feature = "async"))]
-    {
-        let mut vm = VM::new(program, env);
-        let ret = vm.run()?;
-    }
 
     Ok(ret.unwrap().take())
 }
@@ -41,7 +35,7 @@ fn test_basic_embedding() {
 
     let program = compile(script, &env).unwrap();
 
-    let retval = run_vm(&program, env).unwrap();
+    let retval = run_vm(program, env).unwrap();
 
     assert_eq!(retval, 10);
 }
@@ -80,7 +74,7 @@ fn test_rust_interop() {
     "#;
 
     let program = compile(script, &env).unwrap();
-    let retval = run_vm(&program, env).unwrap();
+    let retval = run_vm(program, env).unwrap();
 
     assert_eq!(retval, true);
 }
@@ -101,9 +95,9 @@ fn test_multiple_vm_instances() {
 
     let program = compile(script, &env).unwrap();
 
-    let retval1 = run_vm(&program, env.clone()).unwrap();
+    let retval1 = run_vm(program.clone(), env.clone()).unwrap();
 
-    let retval2 = run_vm(&program, env).unwrap();
+    let retval2 = run_vm(program, env).unwrap();
 
     assert_eq!(retval1, 2);
     assert_eq!(retval2, 2);
@@ -131,14 +125,12 @@ fn test_shared_compiled_program() {
     // 在多个线程中复用编译后的程序
     use std::thread;
 
-    let program = Arc::new(program);
-
     for _ in 0..5 {
         let program = program.clone();
         thread::spawn(move || {
             // 每个线程创建一个新的VM来运行相同的程序
             let env = Environment::new();
-            let retval = run_vm(&program, env).unwrap();
+            let retval = run_vm(program, env).unwrap();
             assert_eq!(retval, 5);
         });
     }
@@ -169,7 +161,7 @@ fn test_rust_object_interop() {
         fn property_set(&mut self, property: &str, value: ValueRef) -> Result<(), RuntimeError> {
             match property {
                 "value" => {
-                    match value.downcast_ref::<i64>() {
+                    match value.value().downcast_ref::<i64>() {
                         Some(value) => self.value = *value,
                         _ => return Err(RuntimeError::invalid_argument::<i64>(0, &value)),
                     }
@@ -190,7 +182,7 @@ fn test_rust_object_interop() {
                         return Err(evalit::RuntimeError::invalid_argument_count(1, 0));
                     }
 
-                    match args[0].downcast_ref::<i64>() {
+                    match args[0].value().downcast_ref::<i64>() {
                         Some(arg) => {
                             self.value += *arg;
                             Ok(None)
@@ -214,7 +206,7 @@ fn test_rust_object_interop() {
     let my_struct = MyStruct { value: 42 };
 
     // 将结构体注册到环境中
-    env.define("myObj", my_struct);
+    env.insert("myObj", my_struct);
 
     let script = r#"
         myObj.increase(10);
@@ -229,7 +221,7 @@ fn test_rust_object_interop() {
     "#;
 
     let program = compile(script, &env).unwrap();
-    let retval = run_vm(&program, env.clone()).unwrap();
+    let retval = run_vm(program, env.clone()).unwrap();
 
     assert_eq!(retval, true);
 
@@ -239,7 +231,6 @@ fn test_rust_object_interop() {
     assert_eq!(my_obj.value, 100);
 }
 
-#[cfg(feature = "async")]
 #[tokio::test]
 async fn test_rust_async_interop() {
     use evalit::Promise;
@@ -280,7 +271,7 @@ async fn test_rust_async_interop() {
     let program = compile(script, &env).unwrap();
 
     let start = Instant::now();
-    let mut vm = VM::new(&program, env);
+    let mut vm = VM::new(program, env);
     let retval = vm.run().await.unwrap().unwrap().take();
     let elapsed = start.elapsed();
 
@@ -288,7 +279,6 @@ async fn test_rust_async_interop() {
     assert!(elapsed.as_secs() > 1);
 }
 
-#[cfg(feature = "async")]
 #[tokio::test]
 async fn test_rust_tcp_interop() {
     use evalit::Promise;
@@ -322,7 +312,7 @@ async fn test_rust_tcp_interop() {
 
     let mut env = Environment::new();
 
-    env.define("addr", addr);
+    env.insert("addr", addr);
 
     // 将异步Rust函数注册到脚本环境中
     env.define_function("tcp_client", move |addr: String| {
@@ -343,7 +333,7 @@ async fn test_rust_tcp_interop() {
     "#;
 
     let program = compile(script, &env).unwrap();
-    let mut vm = VM::new(&program, env);
+    let mut vm = VM::new(program, env);
     let retval = vm.run().await.unwrap().unwrap().take();
 
     assert_eq!(retval, true);

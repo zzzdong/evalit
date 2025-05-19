@@ -47,7 +47,9 @@ impl<T: Object + Clone> Object for Vec<T> {
         ))
     }
 
-    fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
         Ok(Box::new(
             self.clone().into_iter().map(|item| ValueRef::new(item)),
         ))
@@ -176,7 +178,9 @@ impl Object for Vec<ValueRef> {
         ))
     }
 
-    fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
         Ok(Box::new(self.clone().into_iter()))
     }
 

@@ -1,34 +1,19 @@
-use std::{
-    fmt,
-    pin::Pin,
-    sync::Arc,
-    task::{Context, Poll},
-};
+use std::{fmt, sync::Arc};
 
 use evalit::{Environment, Module, Object, VM, ValueRef, compile};
 use hyper::{
-    body::{Bytes, Incoming},
+    body::Incoming,
     header::{HeaderName, HeaderValue},
-    rt::ReadBufCursor,
 };
 use hyper_util::rt::TokioExecutor;
-use tokio::{
-    io::AsyncRead,
-    net::{TcpListener, TcpStream},
-};
+use tokio::net::TcpListener;
 
-#[cfg(not(feature = "async"))]
-fn main() {
-    println!("requires feature `async`");
-}
-
-#[cfg(feature = "async")]
 #[tokio::main]
 async fn main() {
     use hyper::service::service_fn;
     use hyper_util::rt::TokioIo;
 
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let listener = TcpListener::bind("127.0.0.1:5000").await.unwrap();
 
     println!("Listening on http://{}", listener.local_addr().unwrap());
 
@@ -50,11 +35,16 @@ async fn main() {
                     async move {
                         let mut env = Environment::new();
 
-                        // env.define("request", Request::new(req, remote_addr_cloned));
+                        env.insert("request", RequestWrapper::new(req, remote_addr_cloned));
 
-                        let mut vm = VM::new(&script_cloned, env);
+                        let mut vm = VM::new(script_cloned, env.clone());
 
                         let result = vm.run().await;
+                        assert!(result.is_ok());
+
+                        let req = env.remove_as::<RequestWrapper>("request").unwrap();
+
+                        println!("{:?}", req.inner.headers().get("X-Real-Ip"));
 
                         Ok::<_, String>(hyper::Response::new("Hello World!".to_string()))
                     }
@@ -70,7 +60,7 @@ async fn main() {
 
 fn script() -> Arc<Module> {
     let mut env = Environment::new();
-    env.define("request", ());
+    env.insert("request", ());
 
     let script = r#"
 
@@ -81,30 +71,28 @@ fn script() -> Arc<Module> {
         
     "#;
 
-    let module = compile(script, &env).unwrap();
-
-    Arc::new(module)
+    compile(script, &env).unwrap()
 }
 
-struct Request {
+struct RequestWrapper {
     inner: hyper::Request<Incoming>,
     remote_addr: String,
 }
 
-impl Request {
+impl RequestWrapper {
     fn new(inner: hyper::Request<Incoming>, remote_addr: String) -> Self {
         Self { inner, remote_addr }
     }
 }
 
-impl fmt::Debug for Request {
+impl fmt::Debug for RequestWrapper {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("Request")
             .field("inner", &self.inner)
             .finish()
     }
 }
-impl Object for Request {
+impl Object for RequestWrapper {
     fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{:?}", self)
     }

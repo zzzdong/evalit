@@ -6,7 +6,6 @@ use std::{
 
 use log::debug;
 
-#[cfg(feature = "async")]
 use super::Promise;
 use super::{
     Enumerator, EnvVariable, Environment, NativeFunction, Object, Range, RuntimeError,
@@ -17,14 +16,14 @@ use crate::bytecode::{Bytecode, Constant, FunctionId, Module, Opcode, Operand, R
 const STACK_MAX: usize = 0x0FFF;
 
 #[derive(Debug)]
-pub struct VM<'a> {
+pub struct VM {
     state: State,
-    program: &'a Module,
+    program: Arc<Module>,
     env: Environment,
 }
 
-impl<'a> VM<'a> {
-    pub fn new(program: &'a Module, env: Environment) -> Self {
+impl VM {
+    pub fn new(program: Arc<Module>, env: Environment) -> Self {
         Self {
             state: State::new(),
             program,
@@ -32,7 +31,6 @@ impl<'a> VM<'a> {
         }
     }
 
-    #[cfg(feature = "async")]
     pub async fn run(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
         debug!("===constants===");
         for (i, constant) in self.program.constants.iter().enumerate() {
@@ -43,7 +41,7 @@ impl<'a> VM<'a> {
             debug!("{i}: {inst:?}");
         }
 
-        while let Some(inst) = self.program.instructions.get(self.state.pc) {
+        while let Some(inst) = self.program.instructions.get(self.state.pc).cloned() {
             debug!("{}", self.state);
             debug!("{inst:?}");
 
@@ -77,40 +75,7 @@ impl<'a> VM<'a> {
                 }
 
                 _ => {
-                    self.run_instruction(inst)?;
-                }
-            }
-        }
-
-        Ok(None)
-    }
-
-    #[cfg(not(feature = "async"))]
-    pub fn run(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
-        while let Some(inst) = self.program.instructions.get(self.state.pc) {
-            debug!("{}", self.state);
-            debug!("{inst:?}");
-
-            let Bytecode { opcode, operands } = inst;
-
-            match opcode {
-                Opcode::Halt => {
-                    let ret = self.get_value(Operand::Register(Register::Rv))?;
-                    return Ok(Some(ret));
-                }
-
-                Opcode::Ret => {
-                    if self.state.ctrl_stack_reached_bottom() {
-                        let ret = self.get_value(Operand::Register(Register::Rv))?;
-                        return Ok(Some(ret));
-                    }
-                    let pc = self.state.popc()?;
-
-                    self.state.jump(pc);
-                }
-
-                _ => {
-                    self.run_instruction(inst)?;
+                    self.run_instruction(&inst)?;
                 }
             }
         }
@@ -430,13 +395,10 @@ impl<'a> VM<'a> {
             }
 
             Opcode::IndexSet => {
-                let mut object = self.get_value(operands[0])?;
+                let object = self.get_value(operands[0])?;
                 let index = self.get_value(operands[1])?;
                 let value = self.get_value(operands[2])?;
-                object
-                    .value_mut()
-                    .as_object_mut()
-                    .index_set(&index.value(), value)?;
+                object.as_object_mut().index_set(&index.value(), value)?;
             }
 
             Opcode::IndexGet => {
@@ -459,10 +421,7 @@ impl<'a> VM<'a> {
                 let prop = self.load_string(operands[1])?;
                 let value = self.get_value(operands[2])?;
 
-                object
-                    .value_mut()
-                    .as_object_mut()
-                    .property_set(&prop, value)?;
+                object.as_object_mut().property_set(&prop, value)?;
             }
 
             // Range Operations
@@ -518,14 +477,14 @@ impl<'a> VM<'a> {
             }
 
             Opcode::IterNext => {
-                let mut iterator = self.get_value(operands[1])?;
-                let next = iterator.value_mut().as_object_mut().iterate_next()?;
+                let iterator = self.get_value(operands[1])?;
+                let next = iterator.as_object_mut().iterate_next()?;
                 self.set_value(operands[0], Value::new(next))?;
             }
 
             // Object Method Call
             Opcode::MethodCall => {
-                let mut object = self.get_value(operands[0])?;
+                let object = self.get_value(operands[0])?;
                 let prop = self.load_string(operands[1])?;
                 let arg_count = operands[2].as_immd() as usize;
                 // load args from stack
@@ -535,20 +494,17 @@ impl<'a> VM<'a> {
                     let arg = self.get_value(Operand::Stack(offset))?;
                     args.push(arg);
                 }
-                let ret = object
-                    .value_mut()
-                    .as_object_mut()
-                    .method_call(&prop, &args)?;
+                let ret = object.as_object_mut().method_call(&prop, &args)?;
                 let ret = ret.unwrap_or(ValueRef::null());
                 self.state.set_register(Register::Rv, ret)?;
             }
 
             // Native method call
             Opcode::CallNative => {
-                let mut func = self.get_value(operands[0])?;
+                let func = self.get_value(operands[0])?;
                 let arg_count = operands[1].as_immd() as usize;
                 match func.value_mut().downcast_mut::<NativeFunction>() {
-                    Some(mut func) => {
+                    Some(func) => {
                         // load args from stack
                         let mut args = Vec::with_capacity(arg_count);
                         for i in 0..arg_count {

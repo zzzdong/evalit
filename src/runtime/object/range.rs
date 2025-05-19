@@ -113,7 +113,9 @@ impl Range {
 }
 
 impl Object for Range {
-    fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
         match self {
             Range::Normal { begin, end } => {
                 Ok(Box::new((*begin..*end).map(|i| Value::new(i).into())))

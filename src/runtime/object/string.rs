@@ -32,7 +32,9 @@ impl Object for String {
         Err(RuntimeError::invalid_type::<String>(other))
     }
 
-    fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
         let chars = self
             .chars()
             .clone()
@@ -168,7 +170,7 @@ static STRING_META_TABLE: std::sync::LazyLock<MetaTable<String>> = std::sync::La
         })
         .with_method("ends_with", |this: &mut String, args| {
             if args.len() == 1 {
-                                let other = args[0].value();
+                let other = args[0].value();
                 let other = other.downcast_ref::<String>().unwrap();
                 return Ok(Some(ValueRef::new(this.ends_with(other.as_str()))));
             }
@@ -176,7 +178,7 @@ static STRING_META_TABLE: std::sync::LazyLock<MetaTable<String>> = std::sync::La
         })
         .with_method("contains", |this: &mut String, args| {
             if args.len() == 1 {
-                                let other = args[0].value();
+                let other = args[0].value();
                 let other = other.downcast_ref::<String>().unwrap();
                 return Ok(Some(ValueRef::new(this.contains(other.as_str()))));
             }

@@ -7,6 +7,7 @@ mod regalloc;
 mod semantic;
 
 use std::collections::HashMap;
+use std::sync::Arc;
 
 use log::debug;
 
@@ -19,7 +20,7 @@ use codegen::Codegen;
 use lowering::lowering;
 use semantic::SemanticAnalyzer;
 
-pub fn compile(script: &str, env: &crate::Environment) -> Result<crate::Module, CompileError> {
+pub fn compile(script: &str, env: &crate::Environment) -> Result<Arc<crate::Module>, CompileError> {
     Compiler::new().compile(script, env)
 }
 
@@ -121,7 +122,7 @@ impl Compiler {
         Self {}
     }
 
-    pub fn compile(&self, input: &str, env: &Environment) -> Result<Module, CompileError> {
+    pub fn compile(&self, input: &str, env: &Environment) -> Result<Arc<Module>, CompileError> {
         // 解析输入
         let mut ast = parser::parse_file(input)?;
 
@@ -157,6 +158,6 @@ impl Compiler {
             instructions: instructions.to_vec(),
         };
 
-        Ok(module)
+        Ok(Arc::new(module))
     }
 }

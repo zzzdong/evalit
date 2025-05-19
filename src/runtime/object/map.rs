@@ -77,7 +77,9 @@ where
         ))
     }
 
-    fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
         Ok(Box::new(self.clone().into_iter().map(|(k, v)| {
             ValueRef::new((ValueRef::new(k.clone()), v.clone()))
         })))
@@ -114,7 +116,7 @@ where
                 if args.len() == 1 {
                     match args[0].value().downcast_ref::<K>() {
                         Some(key) => {
-                            self.remove(&key);
+                            self.remove(key);
                             return Ok(None);
                         }
                         None => {

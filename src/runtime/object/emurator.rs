@@ -6,11 +6,11 @@ use super::metatable::MetaTable;
 
 /// Enumerator
 pub struct Enumerator {
-    iter: Box<dyn Iterator<Item = ValueRef>>,
+    iter: Box<dyn Iterator<Item = ValueRef> + Send + Sync>,
 }
 
 impl Enumerator {
-    pub fn new(iter: Box<dyn Iterator<Item = ValueRef>>) -> Self {
+    pub fn new(iter: Box<dyn Iterator<Item = ValueRef> + Send + Sync>) -> Self {
         Self { iter }
     }
 

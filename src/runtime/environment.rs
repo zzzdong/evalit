@@ -1,4 +1,4 @@
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 
 use super::{Callable, NativeFunction, Object, ValueRef};
 
@@ -10,7 +10,7 @@ pub enum EnvVariable {
 
 #[derive(Debug, Clone)]
 pub struct Environment {
-    pub(crate) symbols: HashMap<String, EnvVariable>,
+    pub(crate) symbols: BTreeMap<String, EnvVariable>,
 }
 
 impl Default for Environment {
@@ -22,25 +22,25 @@ impl Default for Environment {
 impl Environment {
     pub fn new() -> Self {
         Environment {
-            symbols: HashMap::new(),
+            symbols: BTreeMap::new(),
         }
     }
 
     pub fn with_variable<T: Object>(mut self, name: impl ToString, value: T) -> Self {
-        self.define(name, value);
+        self.insert(name, value);
         self
     }
 
     pub fn with_function<Args: 'static>(
         mut self,
         name: impl ToString,
-        callable: impl Callable<Args> + Send,
+        callable: impl Callable<Args> + Send + Sync + 'static,
     ) -> Self {
         self.define_function(name, callable);
         self
     }
 
-    pub fn define<T: Object>(&mut self, name: impl ToString, value: T) {
+    pub fn insert<T: Object>(&mut self, name: impl ToString, value: T) {
         self.symbols
             .insert(name.to_string(), EnvVariable::Value(ValueRef::new(value)));
     }
@@ -48,7 +48,7 @@ impl Environment {
     pub fn define_function<Args: 'static>(
         &mut self,
         name: impl ToString,
-        callable: impl Callable<Args> + Send,
+        callable: impl Callable<Args> + Send + Sync + 'static,
     ) {
         self.symbols.insert(
             name.to_string(),

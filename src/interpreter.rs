@@ -9,12 +9,9 @@ impl Interpreter {
         let compiler = Compiler::new();
         let module = compiler.compile(script, &env)?;
 
-        let mut vm = VM::new(&module, env);
+        let mut vm = VM::new(module, env);
 
-        #[cfg(feature = "async")]
         let ret = futures::executor::block_on(async { vm.run().await })?;
-        #[cfg(not(feature = "async"))]
-        let ret = vm.run()?;
 
         Ok(ret.map(|v| v.take()))
     }

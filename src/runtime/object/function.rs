@@ -24,11 +24,11 @@ impl Object for UserFunction {
 /// NativeFunction
 pub struct NativeFunction {
     pub name: String,
-    pub func: Box<dyn Function>,
+    pub func: Box<dyn Function + Send + Sync + 'static>,
 }
 
 impl NativeFunction {
-    pub fn new(name: impl ToString, func: Box<dyn Function>) -> Self {
+    pub fn new(name: impl ToString, func: Box<dyn Function + Send + Sync + 'static>) -> Self {
         Self {
             name: name.to_string(),
             func,

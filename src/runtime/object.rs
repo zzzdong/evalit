@@ -13,26 +13,22 @@ mod range;
 mod string;
 mod tuple;
 
-#[cfg(feature = "async")]
 mod promise;
 
 pub use emurator::Enumerator;
 pub use function::{Callable, NativeFunction, UserFunction};
 pub use immd::Immd;
 pub use null::Null;
-pub use range::Range;
-
-#[cfg(feature = "async")]
 pub use promise::Promise;
-
-use std::{any::type_name_of_val, fmt};
-
-#[cfg(feature = "async")]
-use futures::Future;
+pub use range::Range;
 
 use super::{RuntimeError, Value, ValueRef};
 
-pub trait Object: std::any::Any + std::fmt::Debug {
+use std::{any::type_name_of_val, fmt};
+
+use futures::Future;
+
+pub trait Object: std::any::Any + std::fmt::Debug + Send + Sync {
     fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(&format!("{self:?}"))
     }
@@ -163,7 +159,9 @@ pub trait Object: std::any::Any + std::fmt::Debug {
         })
     }
 
-    fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::MakeIterator,
             "unimplemented",
