@@ -1,6 +1,7 @@
 use std::{
-    fmt, io,
-    io::{Error, ErrorKind},
+    collections::HashMap,
+    fmt,
+    io::{self, Error, ErrorKind},
     str::FromStr,
 };
 
@@ -78,16 +79,14 @@ pub enum Type {
     Float,
     Char,
     String,
-    Function {
-        params: Vec<Option<Type>>,
-        return_ty: Option<Box<Type>>,
-    },
     Range,
     Tuple(Vec<Type>),
     Array(Box<Type>),
     Map(Box<Type>),
     Any,
     Unknown,
+    Function(FunctionDeclaration),
+    Struct(StructDefinition),
 }
 
 impl Type {
@@ -289,6 +288,7 @@ pub enum Expression {
     PropertyGet(PropertyGetExpression),
     PropertySet(PropertySetExpression),
     MethodCall(MethodCallExpression),
+    StructExpr(StructExpression),
 }
 
 impl Expression {
@@ -533,4 +533,29 @@ pub struct MethodCallExpression {
     pub object: Box<ExpressionNode>,
     pub method: String,
     pub args: Vec<ExpressionNode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructExpression {
+    pub name: String,
+    pub fields: Vec<StructExprField>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructExprField {
+    pub name: String,
+    pub value: ExpressionNode,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDefinition {
+    pub name: String,
+    pub fields: HashMap<String, Type>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionDeclaration {
+    pub name: String,
+    pub params: Vec<(String, Option<Type>)>,
+    pub return_type: Option<Box<Type>>,
 }

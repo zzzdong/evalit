@@ -1,4 +1,3 @@
-// 新建测试文件
 mod utils;
 use evalit::{Environment, Interpreter, Null};
 use utils::init_logger;
@@ -11,7 +10,7 @@ fn test_null() {
     let script = r#"
     return null;
     "#;
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     println!("ret: {:?}", retval);
     assert_eq!(retval, Null);
@@ -28,7 +27,7 @@ fn test_boolean() {
     return true;
     "#;
 
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
     assert_eq!(retval, true);
 
     let env = Environment::new();
@@ -38,7 +37,7 @@ fn test_boolean() {
     return false;
     "#;
 
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
     assert_eq!(retval, false);
 }
 
@@ -53,7 +52,7 @@ fn test_integer() {
         let script = r#"
         return 42;
         "#;
-        let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+        let retval = Interpreter::eval(script, env).unwrap().unwrap();
         assert_eq!(retval, 42);
     }
     {
@@ -62,7 +61,7 @@ fn test_integer() {
         let script = r#"
     return -17;
     "#;
-        let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+        let retval = Interpreter::eval(script, env).unwrap().unwrap();
         assert_eq!(retval, -17);
     }
 }
@@ -77,7 +76,7 @@ fn test_float() {
     let script = r#"
     return 3.1415;
     "#;
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     println!("ret: {:?}", retval);
     assert_eq!(retval, 3.1415);
@@ -93,7 +92,7 @@ fn test_string() {
     let script = r#"
     return "hello world";
     "#;
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     println!("ret: {:?}", retval);
     assert_eq!(retval, "hello world");
@@ -157,7 +156,7 @@ fn test_array_methods() {
     return true;
     "#;
 
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     assert_eq!(retval, true);
 }
@@ -192,7 +191,7 @@ fn test_map_basics() {
     return true;
     "#;
 
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     assert_eq!(retval, true);
 }
@@ -268,7 +267,7 @@ fn test_map_methods() {
     return has_Alice && has_30;
     "#;
 
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     assert_eq!(retval, true);
 }

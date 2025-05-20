@@ -18,24 +18,6 @@ fn bench_simple_math(c: &mut Criterion) {
     });
 }
 
-fn bench_fibonacci(c: &mut Criterion) {
-    let script = r#"
-    fn fib(n) {
-        if n <= 1 {
-            return n;
-        }
-        return fib(n - 1) + fib(n - 2);
-    }
-    return fib(10);
-    "#;
-
-    c.bench_function("fibonacci", |b| {
-        b.iter(|| {
-            run_script(script).unwrap();
-        })
-    });
-}
-
 fn bench_function_call(c: &mut Criterion) {
     let script = r#"
     fn inc(x) { x + 1; }
@@ -66,12 +48,50 @@ fn bench_array_index_access(c: &mut Criterion) {
     });
 }
 
+fn bench_fibonacci(c: &mut Criterion) {
+    let script = r#"
+    fn fib(n) {
+        if n <= 1 {
+            return n;
+        }
+        return fib(n - 1) + fib(n - 2);
+    }
+    return fib(10);
+    "#;
+
+    let env = Environment::new();
+    let module = compile(script, &env).map_err(|e| e.to_string()).unwrap();
+
+    c.bench_function("fibonacci", |b| {
+        b.iter(|| {
+            let mut vm = VM::new(module.clone(), env.clone());
+            let _ret = futures::executor::block_on(async { vm.run().await }).unwrap();
+        })
+    });
+}
+
+fn bench_native_fibonacci(c: &mut Criterion) {
+    fn fib(n: i64) -> i64 {
+        if n <= 1 {
+            return n;
+        }
+        return fib(n - 1) + fib(n - 2);
+    }
+
+    c.bench_function("native fibonacci", |b| {
+        b.iter(|| {
+            fib(10);
+        })
+    });
+}
+
 // 注册新的 benchmark 到 criterion_group!
 criterion_group!(
     benches,
     bench_simple_math,
-    bench_fibonacci,
     bench_function_call,
     bench_array_index_access,
+    bench_fibonacci,
+    bench_native_fibonacci,
 );
 criterion_main!(benches);

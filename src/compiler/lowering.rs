@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
 use super::CompileError;
@@ -9,7 +10,11 @@ use crate::{
     runtime::EnvVariable,
 };
 
-pub fn lowering(ast: Program, env: &Environment) -> Result<IrUnit, CompileError> {
+pub fn lowering(
+    ast: Program,
+    env: &Environment,
+    struct_defs: HashMap<String, StructDefinition>,
+) -> Result<IrUnit, CompileError> {
     let mut unit = IrUnit::new();
 
     let builder: &mut dyn InstBuilder = &mut IrBuilder::new(&mut unit);
@@ -17,7 +22,7 @@ pub fn lowering(ast: Program, env: &Environment) -> Result<IrUnit, CompileError>
     let entry = builder.create_block("__entry".into());
     builder.switch_to_block(entry);
 
-    let mut ast_lower = ASTLower::new(builder, SymbolTable::new(), env);
+    let mut ast_lower = ASTLower::new(builder, SymbolTable::new(), env, struct_defs);
 
     let mut stmts = Vec::new();
 
@@ -35,7 +40,7 @@ pub fn lowering(ast: Program, env: &Environment) -> Result<IrUnit, CompileError>
                 ast_lower.lower_function_item(func);
             }
             Statement::Item(_) => {
-                unimplemented!("unsupported item statement")
+                // unimplemented!("unsupported item statement")
             }
             Statement::Empty => {}
             _ => {
@@ -68,6 +73,7 @@ pub struct ASTLower<'a> {
     env: &'a Environment,
     symbols: SymbolTable,
     loop_contexts: Vec<LoopContext>,
+    struct_defs: HashMap<String, StructDefinition>,
 }
 
 impl<'a> ASTLower<'a> {
@@ -75,12 +81,14 @@ impl<'a> ASTLower<'a> {
         builder: &'a mut dyn InstBuilder,
         symbols: SymbolTable,
         env: &'a Environment,
+        struct_defs: HashMap<String, StructDefinition>,
     ) -> Self {
         Self {
             builder,
             env,
             symbols,
             loop_contexts: Vec::new(),
+            struct_defs,
         }
     }
 
@@ -357,7 +365,7 @@ impl<'a> ASTLower<'a> {
 
         let mut func_builder = FunctionBuilder::new(self.builder.module_mut(), &mut func);
 
-        let mut func_lower = ASTLower::new(&mut func_builder, symbols, self.env);
+        let mut func_lower = ASTLower::new(&mut func_builder, symbols, self.env, self.struct_defs.clone());
 
         let entry = func_lower.create_block(name);
         func_lower.builder.set_entry(entry);
@@ -402,6 +410,7 @@ impl<'a> ASTLower<'a> {
             Expression::PropertyGet(expr) => self.lower_get_property(expr),
             Expression::PropertySet(expr) => self.lower_set_property(expr),
             Expression::MethodCall(expr) => self.lower_method_call(expr),
+            Expression::StructExpr(expr) => self.lower_struct_expr(expr),
             _ => unimplemented!("{:?}", expr),
         }
     }
@@ -457,6 +466,15 @@ impl<'a> ASTLower<'a> {
         self.builder.set_property(object, &property, value);
 
         value
+    }
+
+    fn lower_struct_expr(&mut self, expr: StructExpression) -> Value {
+        unimplemented!("StructExpression")
+        // let StructExpression { name, fields } = expr;
+
+        // let struct_def = self.struct_defs.get(&name).unwrap();
+
+        // struct_value
     }
 
     fn lower_method_call(&mut self, expr: MethodCallExpression) -> Value {

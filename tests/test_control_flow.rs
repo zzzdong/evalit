@@ -27,7 +27,7 @@ fn test_if_statement() {
     }
     return true;
     "#;
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
@@ -56,7 +56,7 @@ fn test_loop_statement() {
     
     return true;
     "#;
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
@@ -82,7 +82,7 @@ fn test_while_statement() {
     
     return true;
     "#;
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
@@ -117,7 +117,7 @@ fn test_for_statement() {
     
     return true;
     "#;
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
@@ -196,7 +196,7 @@ fn test_break_continue() {
     
     return true;
     "#;
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
@@ -221,7 +221,7 @@ fn test_return_statement() {
     
     return true;
     "#;
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     println!("ret: {:?}", retval);
     assert_eq!(retval, true);
@@ -254,7 +254,7 @@ fn test_eval_control_flow() {
     return true;
     "#;
 
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     assert_eq!(retval, true);
 }
@@ -309,7 +309,7 @@ fn test_eval_for() {
     return true;
     "#;
 
-    let retval = Interpreter::eval_script(script, env).unwrap().unwrap();
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     assert_eq!(retval, true);
 }

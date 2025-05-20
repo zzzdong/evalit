@@ -12,7 +12,7 @@ mod optional;
 mod range;
 mod string;
 mod tuple;
-
+mod structobject;
 mod promise;
 
 pub use emurator::Enumerator;
@@ -134,7 +134,7 @@ pub trait Object: std::any::Any + std::fmt::Debug + Send + Sync {
         ))
     }
 
-    fn property_get(&self, property: &str) -> Result<Value, RuntimeError> {
+    fn property_get(&self, property: &str) -> Result<ValueRef, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::PropertyGet,
             "unimplemented",

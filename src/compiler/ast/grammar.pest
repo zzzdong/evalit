@@ -123,17 +123,31 @@ type_impl         = { "impl" ~ type_expression }
 type_generic      = { identifier ~ "<" ~ type_expression ~ ("," ~ type_expression)* ~ ">" }
 
 /// Primary
-primary = _{ atom | grouped_expression }
+primary = _{ struct_expression | grouped_expression | atom }
 
 /// Grouped Expression
 grouped_expression = { "(" ~ expression ~ ")" }
+
+/// Struct Expression
+struct_expression = {
+    identifier ~ "{" ~ struct_expr_fields ~ "}"
+}
+
+struct_expr_fields = {
+    struct_expr_field ~ ("," ~ struct_expr_field)* ~ ","?
+} 
+
+struct_expr_field = {
+    identifier ~ ":" ~ expression
+}
+
 
 /// closure
 closure = { "|" ~ call_arg_list ~ "|" ~ block }
 
 /// Atom
 atom = {
-    literal
+  | literal
   | simple_path
   | identifier
   | tuple
@@ -417,12 +431,6 @@ inner_doc = @{ (!newline ~ ANY)* }
 /// Keywords
 keywords = _{
     "null"
-  | "bool"
-  | "byte"
-  | "char"
-  | "int"
-  | "float"
-  | "string"
   | "true"
   | "false"
   | "enum"

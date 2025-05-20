@@ -1,4 +1,5 @@
 use std::collections::HashMap;
+use std::hash::Hash;
 
 use super::CompileError;
 use super::ast::syntax::*;
@@ -9,6 +10,8 @@ pub struct SemanticAnalyzer {
     type_env: HashMap<String, Type>,
     // 函数环境，存储函数名到签名的映射
     fn_env: HashMap<String, Type>,
+    // 结构环境，存储结构名到结构类型的映射
+    struct_defs: HashMap<String, StructDefinition>,
     // 当前函数的返回类型，用于检查return语句
     current_function_return_type: Option<Type>,
     // 循环嵌套计数，用于检查break和continue语句
@@ -20,6 +23,7 @@ impl SemanticAnalyzer {
         SemanticAnalyzer {
             type_env: HashMap::new(),
             fn_env: HashMap::new(),
+            struct_defs: HashMap::new(),
             current_function_return_type: None,
             loop_depth: 0,
         }
@@ -46,27 +50,30 @@ impl SemanticAnalyzer {
                 ..
             })) = &stmt.node
             {
-                let param_types = params
-                    .iter()
-                    .map(|p| {
-                        p.ty.clone()
-                            .map(|t| self.type_from_type_expr(&t))
-                            .transpose()
-                    })
-                    .collect::<Result<Vec<_>, _>>()?;
+                let mut param_types = Vec::new();
+
+                for param in params {
+                    let ty = param
+                        .ty
+                        .clone()
+                        .map(|t| self.type_from_type_expr(&t))
+                        .transpose()?;
+
+                    param_types.push((param.name.clone(), ty));
+                }
 
                 let return_ty = return_ty
                     .as_ref()
-                    .map(|t| self.type_from_type_expr(t))
+                    .map(|t| self.type_from_type_expr(t).map(Box::new))
                     .transpose()?;
 
-                self.fn_env.insert(
-                    name.clone(),
-                    Type::Function {
-                        params: param_types,
-                        return_ty: return_ty.map(Box::new),
-                    },
-                );
+                let func_decl = FunctionDeclaration {
+                    name: name.clone(),
+                    params: param_types,
+                    return_type: return_ty,
+                };
+
+                self.fn_env.insert(name.clone(), Type::Function(func_decl));
             }
         }
 
@@ -82,9 +89,8 @@ impl SemanticAnalyzer {
         let span = stmt.span;
 
         match &mut stmt.node {
-            Statement::Let(let_stmt) => self.analyze_let_statement(let_stmt),
             Statement::Expression(expr) => self.analyze_expression(expr).map(|_| ()),
-            Statement::Item(ItemStatement::Fn(func)) => self.analyze_function(func),
+            Statement::Let(let_stmt) => self.analyze_let_statement(let_stmt),
             Statement::If(if_stmt) => self.analyze_if_statement(if_stmt),
             Statement::Loop(loop_stmt) => self.analyze_loop_statement(loop_stmt),
             Statement::While(while_stmt) => self.analyze_while_statement(while_stmt),
@@ -94,9 +100,8 @@ impl SemanticAnalyzer {
             Statement::Break => self.analyze_break_statement(span),
             Statement::Continue => self.analyze_continue_statement(span),
             Statement::Empty => Ok(()),
-            Statement::Item(ItemStatement::Struct(StructItem { .. })) => {
-                unimplemented!("StructItem not implemented")
-            }
+            Statement::Item(ItemStatement::Fn(func)) => self.analyze_function_item(func),
+            Statement::Item(ItemStatement::Struct(item)) => self.analyze_struct_item(item),
             Statement::Item(ItemStatement::Enum(EnumItem { .. })) => {
                 unimplemented!("EnumItem not implemented")
             }
@@ -311,7 +316,7 @@ impl SemanticAnalyzer {
     }
 
     /// 分析函数定义
-    fn analyze_function(&mut self, func: &mut FunctionItem) -> Result<(), CompileError> {
+    fn analyze_function_item(&mut self, func: &mut FunctionItem) -> Result<(), CompileError> {
         // 创建新的作用域
         let mut local_env = self.type_env.clone();
 
@@ -344,6 +349,25 @@ impl SemanticAnalyzer {
         // 恢复环境
         self.type_env = old_env;
         self.current_function_return_type = old_return_type;
+
+        Ok(())
+    }
+
+    fn analyze_struct_item(&mut self, item: &mut StructItem) -> Result<(), CompileError> {
+        let name = item.name.clone();
+
+        let mut fields = HashMap::new();
+        for field in &mut item.fields {
+            let field_ty = self.type_from_type_expr(&field.ty)?;
+            fields.insert(field.name.clone(), field_ty);
+        }
+
+        let def = StructDefinition {
+            name: name.clone(),
+            fields,
+        };
+
+        self.struct_defs.insert(name, def);
 
         Ok(())
     }
@@ -500,7 +524,12 @@ impl SemanticAnalyzer {
             return Ok(Type::Any);
         }
 
-        if let Type::Function { params, return_ty } = &func_ty {
+        if let Type::Function(FunctionDeclaration {
+            name,
+            params,
+            return_type,
+        }) = &func_ty
+        {
             if params.len() != expr.args.len() {
                 return Err(CompileError::ArgumentCountMismatch {
                     expected: params.len(),
@@ -510,7 +539,7 @@ impl SemanticAnalyzer {
 
             for (arg, param_ty) in expr.args.iter_mut().zip(params.iter()) {
                 let arg_ty = self.analyze_expression(arg)?;
-                if let Some(ty) = param_ty {
+                if let Some(ty) = &param_ty.1 {
                     if arg_ty != *ty && arg_ty != Type::Any {
                         return Err(CompileError::TypeMismatch {
                             expected: ty.clone(),
@@ -521,7 +550,10 @@ impl SemanticAnalyzer {
                 }
             }
 
-            Ok(return_ty.as_ref().map(|t| *t.clone()).unwrap_or(Type::Any))
+            Ok(return_type
+                .as_ref()
+                .map(|t| *t.clone())
+                .unwrap_or(Type::Any))
         } else {
             Err(CompileError::NotCallable {
                 ty: func_ty,
@@ -792,8 +824,17 @@ impl SemanticAnalyzer {
             TypeExpression::Float => Ok(Type::Float),
             TypeExpression::Char => Ok(Type::Char),
             TypeExpression::String => Ok(Type::String),
-            TypeExpression::UserDefined(_) => unimplemented!("UserDefined"),
+            TypeExpression::UserDefined(ty) => self
+                .struct_defs
+                .get(ty)
+                .cloned()
+                .map(|def| Type::Struct(def))
+                .ok_or_else(|| CompileError::UnknowType { name: ty.clone() }),
             _ => Ok(Type::Any),
         }
+    }
+
+    pub fn struct_defs(&self) -> &HashMap<String, StructDefinition> {
+        &self.struct_defs
     }
 }

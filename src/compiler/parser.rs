@@ -1,4 +1,4 @@
-use std::sync::OnceLock;
+use std::{collections::HashMap, sync::OnceLock};
 
 use pest::{
     Parser,
@@ -435,6 +435,7 @@ fn parse_primary(pair: Pair<Rule>) -> Result<ExpressionNode> {
         Rule::identifier | Rule::literal | Rule::atom => parse_atom(pair),
         Rule::expression => parse_expression(pair),
         Rule::grouped_expression => parse_expression(pair.into_inner().next().unwrap()),
+        Rule::struct_expression => parse_struct_expression(pair),
         _ => unreachable!("unknown primary: {:?}", pair),
     }
 }
@@ -710,6 +711,51 @@ fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<Expressi
     };
 
     Ok(AstNode::new(expr, span, Type::Unknown))
+}
+
+fn parse_struct_expression(pair: Pair<Rule>) -> Result<ExpressionNode> {
+    println!("parse_struct_expression, {pair:?}");
+
+    let span = Span::from_pair(&pair);
+
+    let mut pairs = pair.into_inner();
+
+    let name = pairs.next().unwrap();
+    assert_eq!(name.as_rule(), Rule::identifier);
+    let name = name.as_str().to_string();
+
+    let fields = pairs.next().unwrap().into_inner();
+
+    let fields = fields
+        .map(|pair| parse_struct_expression_field(pair))
+        .collect::<Result<Vec<_>>>()?;
+
+    let expr = StructExpression {
+        name: name.clone(),
+        fields,
+    };
+
+
+
+    Ok(AstNode::new(
+        Expression::StructExpr(expr),
+        span,
+        Type::Unknown,
+    ))
+}
+
+fn parse_struct_expression_field(pair: Pair<Rule>) -> Result<StructExprField> {
+    println!("parse_struct_expression_field, {pair:?}");
+
+    let mut pairs = pair.into_inner();
+
+    let name = pairs.next().unwrap();
+    assert_eq!(name.as_rule(), Rule::identifier);
+    let name = name.as_str().to_string();
+
+    let value = parse_expression(pairs.next().unwrap())?;
+
+    Ok(StructExprField { name, value })
 }
 
 fn parse_atom(pair: Pair<Rule>) -> Result<ExpressionNode> {

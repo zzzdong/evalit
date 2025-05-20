@@ -31,6 +31,9 @@ pub enum CompileError {
     UndefinedVariable {
         name: String,
     },
+    UnknowType {
+        name: String,
+    },
     TypeMismatch {
         expected: Type,
         actual: Type,
@@ -74,6 +77,9 @@ impl std::fmt::Display for CompileError {
             CompileError::Semantics(message) => write!(f, "Semantics error: {message}"),
             CompileError::UndefinedVariable { name } => {
                 write!(f, "Undefined variable `{name}`")
+            }
+            CompileError::UnknowType { name } => {
+                write!(f, "Unknow type `{name}`")
             }
             CompileError::TypeMismatch {
                 expected,
@@ -132,8 +138,10 @@ impl Compiler {
         let mut analyzer = SemanticAnalyzer::new();
         analyzer.analyze_program(&mut ast, env)?;
 
+        let struct_defs = analyzer.struct_defs();
+
         // IR生成
-        let unit = lowering(ast, env)?;
+        let unit = lowering(ast, env, struct_defs.clone())?;
 
         let mut codegen = Codegen::new(&Register::general());
         let insts = codegen.generate_code(unit.control_flow_graph);
