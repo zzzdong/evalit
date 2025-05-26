@@ -175,12 +175,16 @@ pub enum Opcode {
     IndexSet,
     /// make_slice dst, object, range
     MakeSlice,
+    /// make_struct dst
+    MakeStruct,
+    /// make_struct_field obj, field, value
+    MakeStructField,
     /// prop_get dst, obj, prop
     PropGet,
     /// prop_set obj, prop, value
     PropSet,
-    /// method_call dst, obj, method
-    MethodCall,
+    /// call_method dst, obj, method
+    CallMethod,
     /// await dst, promise
     Await,
 }
@@ -234,9 +238,11 @@ impl fmt::Display for Opcode {
             Opcode::IndexGet => write!(f, "index_get"),
             Opcode::IndexSet => write!(f, "index_set"),
             Opcode::MakeSlice => write!(f, "make_slice"),
+            Opcode::MakeStruct => write!(f, "make_struct"),
+            Opcode::MakeStructField => write!(f, "make_struct_field"),
             Opcode::PropGet => write!(f, "prop_get"),
             Opcode::PropSet => write!(f, "prop_set"),
-            Opcode::MethodCall => write!(f, "method_call"),
+            Opcode::CallMethod => write!(f, "call_method"),
             Opcode::Await => write!(f, "await"),
         }
     }

@@ -108,8 +108,9 @@ tuple_pattern = { "(" ~ (pattern ~ ",")* ~ pattern ~ ")" }
 /// Expression
 expression = { prefix_operator* ~ primary ~ postfix* ~ (infix_operator ~ prefix_operator* ~ primary ~ postfix*)* }
 
-type_expression = { type_bool | type_byte | type_int | type_float | type_char | type_string | type_array | type_tuple | type_generic | type_impl | type_user_defined }
+type_expression = { type_any | type_bool | type_byte | type_int | type_float | type_char | type_string | type_array | type_tuple | type_generic | type_impl | type_user_defined }
 
+type_any          = { "any" }
 type_bool         = { "bool" }
 type_byte         = { "byte" }
 type_int          = { "int" }
@@ -166,13 +167,13 @@ path_seg = { identifier | "super" | "self" | "crate" }
 tuple = { "(" ~ (((expression ~ ",")+ ~ expression) | (expression ~ ",")) ~ ")" }
 
 /// Array
-array = { "[" ~ (expression ~ ("," ~ expression)*)? ~ "]" }
+array = { "[" ~ (expression ~ ("," ~ expression)*)? ~ ","? ~ "]" }
 
 /// map item
 map_item = { expression ~ ":" ~ expression }
 
 /// map
-map = { "{" ~ (map_item ~ ("," ~ map_item)*)? ~ "}" }
+map = { "{" ~ (map_item ~ ("," ~ map_item)*)? ~ ","? ~ "}" }
 
 /// Literal
 literal = { null | boolean | float | integer | string | character }
@@ -430,7 +431,8 @@ inner_doc = @{ (!newline ~ ANY)* }
 
 /// Keywords
 keywords = _{
-    "null"
+  "any"
+  | "null"
   | "true"
   | "false"
   | "enum"
@@ -451,6 +453,7 @@ keywords = _{
   | "try"
   | "catch"
   | "finally"
+  | "throw"
   | "return"
   | "if"
   | "else"
@@ -470,6 +473,7 @@ keywords = _{
   | "crate"
   | "trait"
   | "mod"
+  | "where"
 }
 
 keyword = @{ keywords ~ !("_" | alpha_num) }

@@ -113,7 +113,7 @@ impl Range {
 }
 
 impl Object for Range {
-        #[cfg(feature = "async")]
+    #[cfg(feature = "async")]
     fn make_iterator(
         &self,
     ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
@@ -132,11 +132,8 @@ impl Object for Range {
         }
     }
 
-
     #[cfg(not(feature = "async"))]
-    fn make_iterator(
-        &self,
-    ) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
+    fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
         match self {
             Range::Normal { begin, end } => {
                 Ok(Box::new((*begin..*end).map(|i| Value::new(i).into())))
@@ -152,7 +149,7 @@ impl Object for Range {
         }
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],

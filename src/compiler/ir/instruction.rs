@@ -249,6 +249,14 @@ pub enum Instruction {
         object: Value,
         range: Value,
     },
+    MakeStruct {
+        dst: Value,
+    },
+    MakeStructField {
+        object: Value,
+        field: Value,
+        value: Value,
+    },
 
     // Iteration Instructions
     MakeIterator {
@@ -387,6 +395,12 @@ impl Instruction {
                 value,
             } => (vec![], vec![*object, *index, *value]),
             Instruction::MakeSlice { dst, object, range } => (vec![*dst], vec![*object, *range]),
+            Instruction::MakeStruct { dst } => (vec![*dst], vec![]),
+            Instruction::MakeStructField {
+                object,
+                field,
+                value,
+            } => (vec![], vec![*object, *field, *value]),
             Instruction::Halt => (vec![], vec![]),
         }
     }
@@ -515,22 +529,6 @@ impl std::fmt::Display for Instruction {
                 }
                 Ok(())
             }
-            // Instruction::MakeRangeInclusive {
-            //     op,
-            //     begin,
-            //     end,
-            //     result,
-            // } => {
-            //     write!(f, "{result} = make_range {op} ")?;
-            //     if let Some(begin) = begin {
-            //         write!(f, "{}", begin)?;
-            //     }
-            //     write!(f, "..=",)?;
-            //     if let Some(end) = end {
-            //         write!(f, " {}", end)?;
-            //     }
-            //     Ok(())
-            // }
             Instruction::MakeArray { dst: array } => {
                 write!(f, "{array} = make_array")?;
                 Ok(())
@@ -553,6 +551,16 @@ impl std::fmt::Display for Instruction {
             }
             Instruction::MakeSlice { dst, object, range } => {
                 write!(f, "{dst} = make_slice {object}[{range}]")
+            }
+            Instruction::MakeStruct { dst } => {
+                write!(f, "{dst} = make_struct")
+            }
+            Instruction::MakeStructField {
+                object,
+                field,
+                value,
+            } => {
+                write!(f, "{object}.{field} = {value}")
             }
             Instruction::Halt => write!(f, "halt"),
         }

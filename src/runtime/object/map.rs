@@ -27,11 +27,11 @@ where
     }
 
     fn index_set(&mut self, index: &Value, value: ValueRef) -> Result<(), RuntimeError> {
-        if let Some(key) = index.downcast_ref::<K>() {
-            if let Some(value) = value.value().downcast_ref::<V>() {
-                self.insert(key.clone(), value.clone());
-                return Ok(());
-            }
+        if let Some(key) = index.downcast_ref::<K>()
+            && let Some(value) = value.value().downcast_ref::<V>()
+        {
+            self.insert(key.clone(), value.clone());
+            return Ok(());
         }
 
         Err(RuntimeError::invalid_operation(
@@ -93,7 +93,7 @@ where
         })))
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],

@@ -23,6 +23,7 @@ pub use null::Null;
 #[cfg(feature = "async")]
 pub use promise::Promise;
 pub use range::Range;
+pub use structobject::StructObject;
 
 use super::{RuntimeError, Value, ValueRef};
 
@@ -149,7 +150,7 @@ pub trait Object: std::any::Any + std::fmt::Debug + Send + Sync {
         ))
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],
@@ -314,7 +315,7 @@ pub trait Object: std::any::Any + std::fmt::Debug {
         ))
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],
@@ -325,9 +326,7 @@ pub trait Object: std::any::Any + std::fmt::Debug {
         })
     }
 
-    fn make_iterator(
-        &self,
-    ) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
+    fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::MakeIterator,
             "unimplemented",
@@ -479,7 +478,7 @@ pub trait ObjectBase: std::any::Any + std::fmt::Debug {
         ))
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],

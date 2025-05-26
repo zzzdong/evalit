@@ -7,7 +7,7 @@ impl Object for Option<ValueRef> {
         write!(f, "Option")
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],
@@ -49,7 +49,7 @@ where
         write!(f, "Option")
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],

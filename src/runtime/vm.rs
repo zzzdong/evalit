@@ -8,7 +8,7 @@ use std::{
 use super::Promise;
 use super::{
     Enumerator, EnvVariable, Environment, NativeFunction, Object, Range, RuntimeError,
-    UserFunction, Value, value::ValueRef,
+    UserFunction, Value, object::StructObject, value::ValueRef,
 };
 use crate::bytecode::{Bytecode, Constant, FunctionId, Module, Opcode, Operand, Register};
 use log::debug;
@@ -437,6 +437,24 @@ impl VM {
                 self.set_value(operands[0], slice)?;
             }
 
+            Opcode::MakeStruct => {
+                let struct_object = StructObject::new();
+                self.set_value(operands[0], ValueRef::new(struct_object))?;
+            }
+
+            Opcode::MakeStructField => {
+                let struct_object = self.get_value(operands[0])?;
+                let field_value = self.get_value(operands[2])?;
+
+                let st_cloned = struct_object.clone();
+                let mut st_obj = struct_object.value_mut();
+                let struct_object = st_obj
+                    .downcast_mut::<StructObject>()
+                    .ok_or(RuntimeError::invalid_type::<Vec<ValueRef>>(st_cloned))?;
+                let field_name = self.load_string(operands[1])?;
+                struct_object.make_field(field_name, field_value);
+            }
+
             Opcode::IndexSet => {
                 let object = self.get_value(operands[0])?;
                 let index = self.get_value(operands[1])?;
@@ -526,7 +544,7 @@ impl VM {
             }
 
             // Object Method Call
-            Opcode::MethodCall => {
+            Opcode::CallMethod => {
                 let object = self.get_value(operands[0])?;
                 let prop = self.load_string(operands[1])?;
                 let arg_count = operands[2].as_immd() as usize;
@@ -537,7 +555,7 @@ impl VM {
                     let arg = self.get_value(Operand::Stack(offset))?;
                     args.push(arg);
                 }
-                let ret = object.as_object_mut().method_call(&prop, &args)?;
+                let ret = object.as_object_mut().call_method(&prop, &args)?;
                 let ret = ret.unwrap_or(ValueRef::null());
                 self.state.set_register(Register::Rv, ret)?;
             }

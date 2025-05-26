@@ -1,15 +1,18 @@
+use std::fmt;
+
+#[cfg(not(feature = "async"))]
 use std::{
     cell::{Ref, RefCell, RefMut},
-    fmt,
     rc::Rc,
 };
+
+#[cfg(feature = "async")]
+use std::sync::Arc;
 
 #[cfg(feature = "async")]
 use parking_lot::{
     MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
 };
-#[cfg(feature = "async")]
-use std::sync::Arc;
 
 use super::{Immd, Null, Object};
 use crate::bytecode::{Constant, Primitive};

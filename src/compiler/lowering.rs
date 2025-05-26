@@ -4,55 +4,12 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use super::CompileError;
 use super::ast::syntax::*;
 use super::ir::{builder::*, instruction::*};
+use super::typing::TypeContext;
 use crate::{
     Environment,
     bytecode::{FunctionId, Opcode, Primitive},
     runtime::EnvVariable,
 };
-
-pub fn lowering(
-    ast: Program,
-    env: &Environment,
-    struct_defs: HashMap<String, StructDefinition>,
-) -> Result<IrUnit, CompileError> {
-    let mut unit = IrUnit::new();
-
-    let builder: &mut dyn InstBuilder = &mut IrBuilder::new(&mut unit);
-
-    let entry = builder.create_block("__entry".into());
-    builder.switch_to_block(entry);
-
-    let mut ast_lower = ASTLower::new(builder, SymbolTable::new(), env, struct_defs);
-
-    let mut stmts = Vec::new();
-
-    // declare functions
-    for stmt in &ast.stmts {
-        if let Statement::Item(ItemStatement::Fn(func)) = &stmt.node {
-            ast_lower.declare_function(func);
-        }
-    }
-
-    // split program into statements and items
-    for stmt in ast.stmts {
-        match stmt.node {
-            Statement::Item(ItemStatement::Fn(func)) => {
-                ast_lower.lower_function_item(func);
-            }
-            Statement::Item(_) => {
-                // unimplemented!("unsupported item statement")
-            }
-            Statement::Empty => {}
-            _ => {
-                stmts.push(stmt);
-            }
-        }
-    }
-
-    ast_lower.lower_statements(stmts);
-
-    Ok(unit)
-}
 
 struct LoopContext {
     pub(crate) break_point: BlockId,
@@ -73,7 +30,7 @@ pub struct ASTLower<'a> {
     env: &'a Environment,
     symbols: SymbolTable,
     loop_contexts: Vec<LoopContext>,
-    struct_defs: HashMap<String, StructDefinition>,
+    type_cx: &'a TypeContext,
 }
 
 impl<'a> ASTLower<'a> {
@@ -81,28 +38,56 @@ impl<'a> ASTLower<'a> {
         builder: &'a mut dyn InstBuilder,
         symbols: SymbolTable,
         env: &'a Environment,
-        struct_defs: HashMap<String, StructDefinition>,
+        type_cx: &'a TypeContext,
     ) -> Self {
         Self {
             builder,
             env,
             symbols,
             loop_contexts: Vec::new(),
-            struct_defs,
+            type_cx,
         }
     }
 
-    fn lower_statements(&mut self, stmts: Vec<StatementNode>) {
+    pub fn lower_program(&mut self, prog: Program) -> Result<IrUnit, CompileError> {
+        let mut unit = IrUnit::new();
+
+        let builder: &mut dyn InstBuilder = &mut IrBuilder::new(&mut unit);
+
+        let entry = builder.create_block("__entry".into());
+        builder.switch_to_block(entry);
+
+        // declare functions
+        for decl in self.type_cx.function_decls() {
+            if let Declaration::Function(func) = decl {
+                self.declare_function(func);
+            }
+        }
+
         let entry = self.create_block("main");
         self.builder.switch_to_block(entry);
         self.builder.set_entry(entry);
 
-        for stmt in stmts {
-            self.lower_statement(stmt);
+        // split program into statements and items
+        for stmt in prog.stmts {
+            match stmt.node {
+                Statement::Item(ItemStatement::Fn(func)) => {
+                    self.lower_function_item(func);
+                }
+                Statement::Item(_) => {
+                    // unimplemented!("unsupported item statement")
+                }
+                Statement::Empty => {}
+                _ => {
+                    self.lower_statement(stmt);
+                }
+            }
         }
 
         // FIXME: This is a hack to make block not empty.
         self.builder.make_halt();
+
+        Ok(unit)
     }
 
     fn lower_statement(&mut self, statement: StatementNode) {
@@ -365,7 +350,7 @@ impl<'a> ASTLower<'a> {
 
         let mut func_builder = FunctionBuilder::new(self.builder.module_mut(), &mut func);
 
-        let mut func_lower = ASTLower::new(&mut func_builder, symbols, self.env, self.struct_defs.clone());
+        let mut func_lower = ASTLower::new(&mut func_builder, symbols, self.env, self.type_cx);
 
         let entry = func_lower.create_block(name);
         func_lower.builder.set_entry(entry);
@@ -409,7 +394,7 @@ impl<'a> ASTLower<'a> {
             Expression::IndexSet(expr) => self.lower_index_set(expr),
             Expression::PropertyGet(expr) => self.lower_get_property(expr),
             Expression::PropertySet(expr) => self.lower_set_property(expr),
-            Expression::MethodCall(expr) => self.lower_method_call(expr),
+            Expression::CallMethod(expr) => self.lower_call_method(expr),
             Expression::StructExpr(expr) => self.lower_struct_expr(expr),
             _ => unimplemented!("{:?}", expr),
         }
@@ -469,16 +454,36 @@ impl<'a> ASTLower<'a> {
     }
 
     fn lower_struct_expr(&mut self, expr: StructExpression) -> Value {
-        unimplemented!("StructExpression")
-        // let StructExpression { name, fields } = expr;
+        let StructExpression { name, fields } = expr;
 
-        // let struct_def = self.struct_defs.get(&name).unwrap();
+        let mut field_map = fields
+            .into_iter()
+            .map(|StructExprField { name, value }| (name, self.lower_expression(value)))
+            .collect::<HashMap<_, _>>();
 
-        // struct_value
+        let decl = self.type_cx.get_type_decl(&name).expect("struct not found");
+        if let Declaration::Struct(StructDeclaration {
+            name,
+            fields: decl_fields,
+        }) = decl
+        {
+            for name in decl_fields.keys() {
+                if !field_map.contains_key(name) {
+                    field_map.insert(name.clone(), Value::Primitive(Primitive::Null));
+                }
+            }
+        }
+
+        let field_map = field_map
+            .into_iter()
+            .map(|(name, value)| (self.builder.make_constant(name.into()), value))
+            .collect();
+
+        self.builder.make_struct(field_map)
     }
 
-    fn lower_method_call(&mut self, expr: MethodCallExpression) -> Value {
-        let MethodCallExpression {
+    fn lower_call_method(&mut self, expr: CallMethodExpression) -> Value {
+        let CallMethodExpression {
             object,
             method,
             args,
@@ -672,14 +677,14 @@ impl<'a> ASTLower<'a> {
         }
     }
 
-    fn declare_function(&mut self, func: &FunctionItem) -> FunctionId {
-        let FunctionItem { name, params, .. } = func;
+    fn declare_function(&mut self, func: &FunctionDeclaration) -> FunctionId {
+        let FunctionDeclaration { name, params, .. } = func;
 
         let func_sig = FuncSignature::new(
             name.clone(),
             params
                 .iter()
-                .map(|p| FuncParam::new(p.name.clone()))
+                .map(|(name, _ty)| FuncParam::new(name.clone()))
                 .collect(),
         );
         self.builder.module_mut().declare_function(func_sig.clone())
@@ -722,7 +727,7 @@ pub struct SymbolNode {
 pub struct SymbolTable(Rc<RefCell<SymbolNode>>);
 
 impl SymbolTable {
-    fn new() -> Self {
+    pub fn new() -> Self {
         SymbolTable(Rc::new(RefCell::new(SymbolNode {
             parent: None,
             symbols: BTreeMap::new(),

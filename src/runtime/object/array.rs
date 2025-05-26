@@ -79,7 +79,7 @@ impl<T: Object + Clone> Object for Vec<T> {
         ))
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],
@@ -214,18 +214,18 @@ impl Object for Vec<ValueRef> {
         ))
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],
     ) -> Result<Option<ValueRef>, RuntimeError> {
-        ARRAY_METATABLE.method_call(self, method, args)
+        ARRAY_METATABLE.call_method(self, method, args)
     }
 }
 
 static ARRAY_METATABLE: std::sync::LazyLock<MetaTable<Vec<ValueRef>>> =
     std::sync::LazyLock::new(|| {
-        let mut table = MetaTable::new("array")
+        let table = MetaTable::new("array")
             .with_method("len", |this: &mut Vec<ValueRef>, args| {
                 if args.is_empty() {
                     return Ok(Some(ValueRef::new(this.len() as i64)));

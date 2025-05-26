@@ -5,11 +5,15 @@ mod lowering;
 mod parser;
 mod regalloc;
 mod semantic;
+mod typing;
 
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use ir::builder::{InstBuilder, IrBuilder};
+use ir::instruction::IrUnit;
 use log::debug;
+use typing::TypeContext;
 
 use crate::Environment;
 use crate::bytecode::{Module, Register};
@@ -17,7 +21,7 @@ use ast::syntax::{Span, Type};
 use parser::ParseError;
 
 use codegen::Codegen;
-use lowering::lowering;
+use lowering::{ASTLower, SymbolTable};
 use semantic::SemanticAnalyzer;
 
 pub fn compile(script: &str, env: &crate::Environment) -> Result<Arc<crate::Module>, CompileError> {
@@ -31,12 +35,12 @@ pub enum CompileError {
     UndefinedVariable {
         name: String,
     },
-    UnknowType {
+    UnknownType {
         name: String,
     },
     TypeMismatch {
-        expected: Type,
-        actual: Type,
+        expected: Box<Type>,
+        actual: Box<Type>,
         span: Span,
     },
     TypeInference(String),
@@ -64,6 +68,16 @@ pub enum CompileError {
     },
 }
 
+impl CompileError {
+    pub fn type_mismatch(expected: Type, actual: Type, span: Span) -> Self {
+        CompileError::TypeMismatch {
+            span,
+            expected: Box::new(expected),
+            actual: Box::new(actual),
+        }
+    }
+}
+
 impl From<ParseError> for CompileError {
     fn from(error: ParseError) -> Self {
         CompileError::Parse(error)
@@ -78,7 +92,7 @@ impl std::fmt::Display for CompileError {
             CompileError::UndefinedVariable { name } => {
                 write!(f, "Undefined variable `{name}`")
             }
-            CompileError::UnknowType { name } => {
+            CompileError::UnknownType { name } => {
                 write!(f, "Unknow type `{name}`")
             }
             CompileError::TypeMismatch {
@@ -134,22 +148,27 @@ impl Compiler {
 
         debug!("AST: {ast:?}");
 
-        // // 语义分析
-        let mut analyzer = SemanticAnalyzer::new();
+        let mut type_cx = TypeContext::new();
+        type_cx.process_env(env);
+
+        // 语义分析
+        let mut analyzer = SemanticAnalyzer::new(&mut type_cx);
         analyzer.analyze_program(&mut ast, env)?;
 
-        let struct_defs = analyzer.struct_defs();
+        // IR生成, AST -> IR
+        let mut unit = IrUnit::new();
+        let builder: &mut dyn InstBuilder = &mut IrBuilder::new(&mut unit);
+        let mut lower = ASTLower::new(builder, SymbolTable::new(), env, &type_cx);
+        lower.lower_program(ast)?;
 
-        // IR生成
-        let unit = lowering(ast, env, struct_defs.clone())?;
-
+        // code generation, IR -> bytecode
         let mut codegen = Codegen::new(&Register::general());
         let insts = codegen.generate_code(unit.control_flow_graph);
 
         let mut instructions = insts.to_vec();
 
         let mut symtab = HashMap::new();
-
+        // relocate symbol table
         let mut offset = instructions.len();
         for func in unit.functions {
             let mut codegen = Codegen::new(&Register::general());

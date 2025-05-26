@@ -72,7 +72,7 @@ impl Span {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
-    Null,
+    Any,
     Boolean,
     Byte,
     Integer,
@@ -83,10 +83,9 @@ pub enum Type {
     Tuple(Vec<Type>),
     Array(Box<Type>),
     Map(Box<Type>),
-    Any,
     Unknown,
-    Function(FunctionDeclaration),
-    Struct(StructDefinition),
+    UserDefined(String),
+    Decl(Declaration),
 }
 
 impl Type {
@@ -112,10 +111,6 @@ impl Type {
 
     pub fn is_any(&self) -> bool {
         matches!(self, Type::Any)
-    }
-
-    pub fn is_function(&self) -> bool {
-        matches!(self, Type::Function { .. })
     }
 
     pub fn get_array_element_type(&self) -> Option<&Type> {
@@ -252,6 +247,7 @@ pub struct ReturnStatement {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpression {
+    Any,
     Boolean,
     Byte,
     Integer,
@@ -287,7 +283,7 @@ pub enum Expression {
     IndexSet(IndexSetExpression),
     PropertyGet(PropertyGetExpression),
     PropertySet(PropertySetExpression),
-    MethodCall(MethodCallExpression),
+    CallMethod(CallMethodExpression),
     StructExpr(StructExpression),
 }
 
@@ -529,7 +525,7 @@ pub struct PropertySetExpression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct MethodCallExpression {
+pub struct CallMethodExpression {
     pub object: Box<ExpressionNode>,
     pub method: String,
     pub args: Vec<ExpressionNode>,
@@ -548,9 +544,16 @@ pub struct StructExprField {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct StructDefinition {
-    pub name: String,
-    pub fields: HashMap<String, Type>,
+pub enum Declaration {
+    Function(FunctionDeclaration),
+    Struct(StructDeclaration),
+    Enum(EnumDeclaration),
+}
+
+impl Declaration {
+    pub fn is_function(&self) -> bool {
+        matches!(self, Declaration::Function(_))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -558,4 +561,16 @@ pub struct FunctionDeclaration {
     pub name: String,
     pub params: Vec<(String, Option<Type>)>,
     pub return_type: Option<Box<Type>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDeclaration {
+    pub name: String,
+    pub fields: HashMap<String, Type>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDeclaration {
+    pub name: String,
+    pub variants: Vec<(String, Option<Type>)>,
 }

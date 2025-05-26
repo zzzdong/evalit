@@ -1,4 +1,4 @@
-use std::{collections::HashMap, sync::OnceLock};
+use std::sync::OnceLock;
 
 use pest::{
     Parser,
@@ -388,6 +388,7 @@ fn parse_type_expression(pair: Pair<Rule>) -> TypeExpression {
     let pair = pair.into_inner().next().unwrap();
 
     match pair.as_rule() {
+        Rule::type_any => TypeExpression::Any,
         Rule::type_bool => TypeExpression::Boolean,
         Rule::type_byte => TypeExpression::Byte,
         Rule::type_int => TypeExpression::Integer,
@@ -490,35 +491,6 @@ fn parse_infix(
                     value: Box::new(rhs_expr),
                 }),
             }
-
-            // if let Expression::PropertyGet(PropertyGetExpression { object, property }) =
-            //     &lhs_expr.node
-            // {
-            //     Expression::PropertySet(PropertySetExpression {
-            //         object: object.clone(),
-            //         property: property.clone(),
-            //         value: Box::new(rhs_expr),
-            //     })
-            // } else {
-            //     // Check if it's an index expression and handle it as index set
-            //     if let Expression::Index(IndexExpression { ref object, ref index }) = lhs_expr.node {
-            //         let index_expr = IndexExpression {
-            //             object: object.clone(),
-            //             index: index.clone(),
-            //         };
-
-            //         // Create an index set operation
-            //         return Ok(AstNode::new(
-            //             Expression::IndexSet(IndexSetExpression {
-            //                 expr: Box::new(index_expr),
-            //                 value: Box::new(rhs_expr)
-            //             }),
-            //             span,
-            //             Type::Unknown
-            //         ))
-            //     }
-
-            // }
         }
         Rule::add_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Add),
         Rule::sub_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Sub),
@@ -600,7 +572,7 @@ fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<Expressi
             match object.node {
                 Expression::PropertyGet(PropertyGetExpression { object, property }) => {
                     // Convert MemberExpression + Call to MethodCall
-                    Expression::MethodCall(MethodCallExpression {
+                    Expression::CallMethod(CallMethodExpression {
                         object,
                         method: property,
                         args: args?,
@@ -734,8 +706,6 @@ fn parse_struct_expression(pair: Pair<Rule>) -> Result<ExpressionNode> {
         name: name.clone(),
         fields,
     };
-
-
 
     Ok(AstNode::new(
         Expression::StructExpr(expr),
@@ -2053,23 +2023,23 @@ mod test {
     }
 
     #[test]
-    fn test_method_call_expression() {
+    fn test_call_method_expression() {
         let input = r#"a.b(1, 2)"#;
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
-        if let Expression::MethodCall(method_call) = expression.node {
-            assert_eq!(method_call.method, "b");
+        if let Expression::CallMethod(call_method) = expression.node {
+            assert_eq!(call_method.method, "b");
             assert_eq!(
-                method_call.object.node,
+                call_method.object.node,
                 Expression::Identifier(IdentifierExpression("a".to_string()))
             );
-            assert_eq!(method_call.args.len(), 2);
+            assert_eq!(call_method.args.len(), 2);
             assert_eq!(
-                method_call.args[0].node,
+                call_method.args[0].node,
                 Expression::Literal(LiteralExpression::Integer(1))
             );
             assert_eq!(
-                method_call.args[1].node,
+                call_method.args[1].node,
                 Expression::Literal(LiteralExpression::Integer(2))
             );
         } else {

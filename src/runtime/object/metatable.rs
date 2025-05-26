@@ -2,7 +2,6 @@ use std::{collections::HashMap, fmt::Debug};
 
 use crate::{RuntimeError, Value, ValueRef};
 
-
 type Method<T> = fn(&mut T, &[ValueRef]) -> Result<Option<ValueRef>, RuntimeError>;
 type Getter<T> = fn(&T) -> Result<Value, RuntimeError>;
 type Setter<T> = fn(&mut T, Value) -> Result<(), RuntimeError>;
@@ -68,7 +67,7 @@ impl<T> MetaTable<T> {
         }
     }
 
-    pub fn method_call(
+    pub fn call_method(
         &self,
         this: &mut T,
         method: &str,

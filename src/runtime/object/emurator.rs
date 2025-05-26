@@ -47,12 +47,12 @@ impl Object for Enumerator {
         Ok(self.next())
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],
     ) -> Result<Option<ValueRef>, RuntimeError> {
-        ENUMERATOR_META_TABLE.method_call(self, method, args)
+        ENUMERATOR_META_TABLE.call_method(self, method, args)
     }
 }
 

@@ -9,6 +9,18 @@ pub struct StructObject {
     fields: HashMap<String, ValueRef>,
 }
 
+impl StructObject {
+    pub fn new() -> Self {
+        Self {
+            fields: HashMap::new(),
+        }
+    }
+
+    pub fn make_field(&mut self, name: impl ToString, value: ValueRef) {
+        self.fields.insert(name.to_string(), value);
+    }
+}
+
 impl Object for StructObject {
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "StructObject")

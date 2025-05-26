@@ -66,7 +66,7 @@ impl Object for f32 {
         Ok(Value::new(-self))
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[crate::ValueRef],
@@ -158,7 +158,7 @@ impl Object for f64 {
         Ok(Value::new(-self))
     }
 
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[crate::ValueRef],

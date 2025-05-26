@@ -176,7 +176,7 @@ fn test_rust_object_interop() {
             }
         }
 
-        fn method_call(
+        fn call_method(
             &mut self,
             method: &str,
             args: &[ValueRef],

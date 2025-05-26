@@ -80,12 +80,12 @@ impl Object for String {
             format!("cannot make_slice with {range:?}"),
         ))
     }
-    fn method_call(
+    fn call_method(
         &mut self,
         method: &str,
         args: &[ValueRef],
     ) -> Result<Option<ValueRef>, RuntimeError> {
-        STRING_META_TABLE.method_call(self, method, args)
+        STRING_META_TABLE.call_method(self, method, args)
     }
 }
 

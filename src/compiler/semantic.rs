@@ -1,29 +1,20 @@
-use std::collections::HashMap;
-use std::hash::Hash;
-
 use super::CompileError;
 use super::ast::syntax::*;
+use super::typing::TypeContext;
 use crate::Environment;
 
-pub struct SemanticAnalyzer {
-    // 类型环境，存储变量名到类型的映射
-    type_env: HashMap<String, Type>,
-    // 函数环境，存储函数名到签名的映射
-    fn_env: HashMap<String, Type>,
-    // 结构环境，存储结构名到结构类型的映射
-    struct_defs: HashMap<String, StructDefinition>,
+pub struct SemanticAnalyzer<'a> {
+    type_cx: &'a mut TypeContext,
     // 当前函数的返回类型，用于检查return语句
     current_function_return_type: Option<Type>,
     // 循环嵌套计数，用于检查break和continue语句
     loop_depth: usize,
 }
 
-impl SemanticAnalyzer {
-    pub fn new() -> Self {
+impl<'a> SemanticAnalyzer<'a> {
+    pub fn new(type_cx: &'a mut TypeContext) -> Self {
         SemanticAnalyzer {
-            type_env: HashMap::new(),
-            fn_env: HashMap::new(),
-            struct_defs: HashMap::new(),
+            type_cx,
             current_function_return_type: None,
             loop_depth: 0,
         }
@@ -36,46 +27,12 @@ impl SemanticAnalyzer {
         env: &Environment,
     ) -> Result<(), CompileError> {
         // 第一阶段：收集环境变量
-
         for name in env.symbols.keys() {
-            self.type_env.insert(name.to_string(), Type::Any);
+            self.type_cx.set_type(name.to_string(), Type::Any);
         }
 
-        // 第二阶段：收集函数声明
-        for stmt in &program.stmts {
-            if let Statement::Item(ItemStatement::Fn(FunctionItem {
-                name,
-                params,
-                return_ty,
-                ..
-            })) = &stmt.node
-            {
-                let mut param_types = Vec::new();
-
-                for param in params {
-                    let ty = param
-                        .ty
-                        .clone()
-                        .map(|t| self.type_from_type_expr(&t))
-                        .transpose()?;
-
-                    param_types.push((param.name.clone(), ty));
-                }
-
-                let return_ty = return_ty
-                    .as_ref()
-                    .map(|t| self.type_from_type_expr(t).map(Box::new))
-                    .transpose()?;
-
-                let func_decl = FunctionDeclaration {
-                    name: name.clone(),
-                    params: param_types,
-                    return_type: return_ty,
-                };
-
-                self.fn_env.insert(name.clone(), Type::Function(func_decl));
-            }
-        }
+        // 第二阶段：收集声明
+        self.type_cx.analyze_type_decl(&program.stmts);
 
         // 第三阶段：分析所有语句
         for stmt in &mut program.stmts {
@@ -130,22 +87,22 @@ impl SemanticAnalyzer {
         match (decl_ty, value_ty) {
             (Some(decl_type), Some(value_ty)) => {
                 if decl_type != value_ty {
-                    return Err(CompileError::TypeMismatch {
-                        expected: decl_type,
-                        actual: value_ty,
-                        span: value.clone().unwrap().span(),
-                    });
+                    return Err(CompileError::type_mismatch(
+                        decl_type,
+                        value_ty,
+                        value.clone().unwrap().span(),
+                    ));
                 }
-                self.type_env.insert(name.clone(), decl_type);
+                self.type_cx.set_type(name.clone(), decl_type);
             }
             (Some(decl_type), None) => {
-                self.type_env.insert(name.clone(), decl_type);
+                self.type_cx.set_type(name.clone(), decl_type);
             }
             (None, Some(value_ty)) => {
-                self.type_env.insert(name.clone(), value_ty);
+                self.type_cx.set_type(name.clone(), value_ty);
             }
             (None, None) => {
-                self.type_env.insert(name.clone(), Type::Any);
+                self.type_cx.set_type(name.clone(), Type::Any);
             }
         }
 
@@ -159,11 +116,11 @@ impl SemanticAnalyzer {
 
         // TODO: 条件必须是布尔类型
         if condition_ty != Type::Boolean && condition_ty != Type::Any {
-            return Err(CompileError::TypeMismatch {
-                expected: Type::Boolean,
-                actual: condition_ty.clone(),
-                span: if_stmt.condition.span,
-            });
+            return Err(CompileError::type_mismatch(
+                Type::Boolean,
+                condition_ty.clone(),
+                if_stmt.condition.span,
+            ));
         }
 
         // 分析then分支
@@ -203,11 +160,11 @@ impl SemanticAnalyzer {
 
         // 条件必须是布尔类型
         if !condition_ty.is_boolean() {
-            return Err(CompileError::TypeMismatch {
-                expected: Type::Boolean,
-                actual: condition_ty.clone(),
-                span: while_stmt.condition.span,
-            });
+            return Err(CompileError::type_mismatch(
+                Type::Boolean,
+                condition_ty.clone(),
+                while_stmt.condition.span,
+            ));
         }
 
         // 增加循环深度
@@ -225,7 +182,7 @@ impl SemanticAnalyzer {
     /// 分析For语句
     fn analyze_for_statement(&mut self, for_stmt: &mut ForStatement) -> Result<(), CompileError> {
         // 创建新的作用域
-        let old_env = self.type_env.clone();
+        let old_env = std::mem::replace(self.type_cx, self.type_cx.clone());
 
         // 分析迭代器表达式
         // self.analyze_expression(&mut for_stmt.iterable)?;
@@ -242,7 +199,7 @@ impl SemanticAnalyzer {
         self.loop_depth -= 1;
 
         // 恢复作用域
-        self.type_env = old_env;
+        let _ = std::mem::replace(self.type_cx, old_env);
 
         Ok(())
     }
@@ -258,7 +215,7 @@ impl SemanticAnalyzer {
         match pattern {
             Pattern::Wildcard => {}
             Pattern::Identifier(id) => {
-                self.type_env.insert(id.clone(), Type::Any);
+                self.type_cx.set_type(id.clone(), Type::Any);
             }
             Pattern::Tuple(tuple) => {
                 for pat in tuple.iter_mut() {
@@ -302,7 +259,7 @@ impl SemanticAnalyzer {
     /// 分析代码块
     fn analyze_block(&mut self, block: &mut BlockStatement) -> Result<(), CompileError> {
         // 创建新的作用域
-        let old_env = self.type_env.clone();
+        let old_env = std::mem::replace(self.type_cx, self.type_cx.clone());
 
         // 分析块中的所有语句
         for stmt in &mut block.0 {
@@ -310,7 +267,7 @@ impl SemanticAnalyzer {
         }
 
         // 恢复作用域
-        self.type_env = old_env;
+        let _ = std::mem::replace(self.type_cx, old_env);
 
         Ok(())
     }
@@ -318,7 +275,7 @@ impl SemanticAnalyzer {
     /// 分析函数定义
     fn analyze_function_item(&mut self, func: &mut FunctionItem) -> Result<(), CompileError> {
         // 创建新的作用域
-        let mut local_env = self.type_env.clone();
+        let old_env = std::mem::replace(self.type_cx, self.type_cx.clone());
 
         // 获取函数返回类型
         let return_ty = if let Some(ty_expr) = &func.return_ty {
@@ -334,41 +291,23 @@ impl SemanticAnalyzer {
                 None => Type::Any,
             };
 
-            local_env.insert(param.name.clone(), param_ty);
+            self.type_cx.set_type(param.name.clone(), param_ty);
         }
 
         // 保存当前函数的返回类型，用于检查return语句
         let old_return_type = self.current_function_return_type.replace(return_ty.clone());
 
         // 分析函数体
-        let old_env = std::mem::replace(&mut self.type_env, local_env);
-        for stmt in &mut func.body.0 {
-            self.analyze_statement(stmt)?;
-        }
+        self.analyze_block(&mut func.body)?;
 
         // 恢复环境
-        self.type_env = old_env;
+        let _ = std::mem::replace(self.type_cx, old_env);
         self.current_function_return_type = old_return_type;
 
         Ok(())
     }
 
     fn analyze_struct_item(&mut self, item: &mut StructItem) -> Result<(), CompileError> {
-        let name = item.name.clone();
-
-        let mut fields = HashMap::new();
-        for field in &mut item.fields {
-            let field_ty = self.type_from_type_expr(&field.ty)?;
-            fields.insert(field.name.clone(), field_ty);
-        }
-
-        let def = StructDefinition {
-            name: name.clone(),
-            fields,
-        };
-
-        self.struct_defs.insert(name, def);
-
         Ok(())
     }
 
@@ -391,7 +330,7 @@ impl SemanticAnalyzer {
             Expression::Slice(expr) => self.analyze_slice_expression(expr)?,
             Expression::Try(expr) => self.analyze_try_expression(expr)?,
             Expression::Await(expr) => self.analyze_await_expression(expr)?,
-            Expression::MethodCall(expr) => self.analyze_method_call_expression(expr)?,
+            Expression::CallMethod(expr) => self.analyze_call_method_expression(expr)?,
             _ => {
                 // 处理其他未实现的表达式类型
                 Type::Any
@@ -421,12 +360,7 @@ impl SemanticAnalyzer {
         &mut self,
         ident: &mut IdentifierExpression,
     ) -> Result<Type, CompileError> {
-        // 先从变量环境查找
-        if let Some(ty) = self.type_env.get(&ident.0) {
-            return Ok(ty.clone());
-        }
-        // 再从函数环境查找
-        if let Some(ty) = self.fn_env.get(&ident.0) {
+        if let Some(ty) = self.type_cx.get_type(&ident.0) {
             return Ok(ty.clone());
         }
 
@@ -452,20 +386,20 @@ impl SemanticAnalyzer {
                     && lhs_ty != Type::String
                     && lhs_ty != Type::Char
                 {
-                    return Err(CompileError::TypeMismatch {
-                        expected: Type::Integer,
-                        actual: lhs_ty,
-                        span: expr.lhs.span(),
-                    });
+                    return Err(CompileError::type_mismatch(
+                        Type::Integer,
+                        lhs_ty,
+                        expr.lhs.span(),
+                    ));
                 }
             }
             BinOp::LogicAnd | BinOp::LogicOr => {
                 if lhs_ty != Type::Boolean || rhs_ty != Type::Boolean {
-                    return Err(CompileError::TypeMismatch {
-                        expected: Type::Boolean,
-                        actual: lhs_ty,
-                        span: expr.lhs.span(),
-                    });
+                    return Err(CompileError::type_mismatch(
+                        Type::Boolean,
+                        lhs_ty,
+                        expr.lhs.span(),
+                    ));
                 }
             }
             _ => {}
@@ -493,20 +427,20 @@ impl SemanticAnalyzer {
         match expr.op {
             PrefixOp::Neg => {
                 if !(rhs_ty.is_numeric() || rhs_ty == Type::Any) {
-                    return Err(CompileError::TypeMismatch {
-                        expected: Type::Integer,
-                        actual: rhs_ty,
-                        span: expr.rhs.span(),
-                    });
+                    return Err(CompileError::type_mismatch(
+                        Type::Integer,
+                        rhs_ty,
+                        expr.rhs.span(),
+                    ));
                 }
             }
             PrefixOp::Not => {
                 if !(rhs_ty.is_boolean() || rhs_ty == Type::Any) {
-                    return Err(CompileError::TypeMismatch {
-                        expected: Type::Boolean,
-                        actual: rhs_ty,
-                        span: expr.rhs.span(),
-                    });
+                    return Err(CompileError::type_mismatch(
+                        Type::Boolean,
+                        rhs_ty,
+                        expr.rhs.span(),
+                    ));
                 }
             }
         }
@@ -524,11 +458,11 @@ impl SemanticAnalyzer {
             return Ok(Type::Any);
         }
 
-        if let Type::Function(FunctionDeclaration {
+        if let Type::Decl(Declaration::Function(FunctionDeclaration {
             name,
             params,
             return_type,
-        }) = &func_ty
+        })) = &func_ty
         {
             if params.len() != expr.args.len() {
                 return Err(CompileError::ArgumentCountMismatch {
@@ -539,15 +473,12 @@ impl SemanticAnalyzer {
 
             for (arg, param_ty) in expr.args.iter_mut().zip(params.iter()) {
                 let arg_ty = self.analyze_expression(arg)?;
-                if let Some(ty) = &param_ty.1 {
-                    if arg_ty != *ty && arg_ty != Type::Any {
-                        return Err(CompileError::TypeMismatch {
-                            expected: ty.clone(),
-                            actual: arg_ty,
-                            span: arg.span(),
-                        });
-                    };
-                }
+                if let Some(ty) = &param_ty.1
+                    && arg_ty != *ty
+                    && arg_ty != Type::Any
+                {
+                    return Err(CompileError::type_mismatch(ty.clone(), arg_ty, arg.span()));
+                };
             }
 
             Ok(return_type
@@ -582,11 +513,11 @@ impl SemanticAnalyzer {
         let first_ty = &elem_types[0];
         for (i, elem) in expr.0.iter().enumerate() {
             if &elem_types[i] != first_ty && elem_types[i] != Type::Any {
-                return Err(CompileError::TypeMismatch {
-                    expected: first_ty.clone(),
-                    actual: elem_types[i].clone(),
-                    span: elem.span(),
-                });
+                return Err(CompileError::type_mismatch(
+                    first_ty.clone(),
+                    elem_types[i].clone(),
+                    elem.span(),
+                ));
             }
         }
 
@@ -629,11 +560,11 @@ impl SemanticAnalyzer {
         match object_ty {
             Type::Array(ty) => {
                 if *ty != value_ty && value_ty != Type::Any {
-                    return Err(CompileError::TypeMismatch {
-                        expected: *ty,
-                        actual: value_ty,
-                        span: expr.value.span(),
-                    });
+                    return Err(CompileError::type_mismatch(
+                        *ty,
+                        value_ty,
+                        expr.value.span(),
+                    ));
                 }
             }
             Type::Map(_) | Type::Any => {
@@ -699,11 +630,11 @@ impl SemanticAnalyzer {
 
         // 检查赋值左右类型是否兼容
         if object_ty != Type::Any && value_ty != Type::Any && object_ty != value_ty {
-            return Err(CompileError::TypeMismatch {
-                expected: object_ty,
-                actual: value_ty,
-                span: expr.value.span(),
-            });
+            return Err(CompileError::type_mismatch(
+                object_ty,
+                value_ty,
+                expr.value.span(),
+            ));
         }
 
         Ok(object_ty)
@@ -716,22 +647,22 @@ impl SemanticAnalyzer {
         if let Some(ref mut begin_expr) = expr.begin {
             let begin_ty = self.analyze_expression(begin_expr)?;
             if begin_ty != Type::Integer && begin_ty != Type::Any {
-                return Err(CompileError::TypeMismatch {
-                    expected: Type::Integer,
-                    actual: begin_ty,
-                    span: begin_expr.span(),
-                });
+                return Err(CompileError::type_mismatch(
+                    Type::Integer,
+                    begin_ty,
+                    begin_expr.span(),
+                ));
             }
         }
 
         if let Some(ref mut end_expr) = expr.end {
             let end_ty = self.analyze_expression(end_expr)?;
             if end_ty != Type::Integer && end_ty != Type::Any {
-                return Err(CompileError::TypeMismatch {
-                    expected: Type::Integer,
-                    actual: end_ty,
-                    span: end_expr.span(),
-                });
+                return Err(CompileError::type_mismatch(
+                    Type::Integer,
+                    end_ty,
+                    end_expr.span(),
+                ));
             }
         }
 
@@ -776,9 +707,9 @@ impl SemanticAnalyzer {
         Ok(expr_ty)
     }
 
-    fn analyze_method_call_expression(
+    fn analyze_call_method_expression(
         &mut self,
-        expr: &mut MethodCallExpression,
+        expr: &mut CallMethodExpression,
     ) -> Result<Type, CompileError> {
         let object_ty = self.analyze_expression(expr.object.as_mut())?;
 
@@ -791,50 +722,15 @@ impl SemanticAnalyzer {
         Ok(Type::Any)
     }
 
-    /// 分析类型表达式
-    fn analyze_type(&mut self, type_expr: &mut TypeExpression) -> Result<(), CompileError> {
-        match type_expr {
-            TypeExpression::Array(inner_type) => {
-                self.analyze_type(inner_type.as_mut())?;
-                Ok(())
-            }
-            TypeExpression::Tuple(types) => {
-                for ty in types {
-                    self.analyze_type(ty)?;
-                }
-                Ok(())
-            }
-            TypeExpression::Generic(name, params) => {
-                for param in params {
-                    self.analyze_type(param)?;
-                }
-                Ok(())
-            }
-            TypeExpression::UserDefined(_) | TypeExpression::Impl(_) => Ok(()),
-            _ => Ok(()),
-        }
-    }
-
     /// 从类型表达式转换为Type
-    fn type_from_type_expr(&self, type_expr: &TypeExpression) -> Result<Type, CompileError> {
-        match type_expr {
-            TypeExpression::Boolean => Ok(Type::Boolean),
-            TypeExpression::Byte => Ok(Type::Byte),
-            TypeExpression::Integer => Ok(Type::Integer),
-            TypeExpression::Float => Ok(Type::Float),
-            TypeExpression::Char => Ok(Type::Char),
-            TypeExpression::String => Ok(Type::String),
-            TypeExpression::UserDefined(ty) => self
-                .struct_defs
-                .get(ty)
-                .cloned()
-                .map(|def| Type::Struct(def))
-                .ok_or_else(|| CompileError::UnknowType { name: ty.clone() }),
-            _ => Ok(Type::Any),
+    fn type_from_type_expr(&mut self, type_expr: &TypeExpression) -> Result<Type, CompileError> {
+        let ty = self.type_cx.resolve_type_decl(type_expr);
+        if ty == Type::Unknown {
+            Err(CompileError::UnknownType {
+                name: format!("{type_expr:?}"),
+            })
+        } else {
+            Ok(ty)
         }
-    }
-
-    pub fn struct_defs(&self) -> &HashMap<String, StructDefinition> {
-        &self.struct_defs
     }
 }
