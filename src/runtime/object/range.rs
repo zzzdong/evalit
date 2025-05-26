@@ -113,9 +113,30 @@ impl Range {
 }
 
 impl Object for Range {
+        #[cfg(feature = "async")]
     fn make_iterator(
         &self,
     ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
+        match self {
+            Range::Normal { begin, end } => {
+                Ok(Box::new((*begin..*end).map(|i| Value::new(i).into())))
+            }
+            Range::Inclusive { begin, end } => {
+                Ok(Box::new((*begin..=*end).map(|i| Value::new(i).into())))
+            }
+            Range::From { begin } => Ok(Box::new((*begin..).map(|i| Value::new(i).into()))),
+            _ => Err(RuntimeError::invalid_operation(
+                super::OperateKind::MakeIterator,
+                format!("range {self:?} is not iterable"),
+            )),
+        }
+    }
+
+
+    #[cfg(not(feature = "async"))]
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
         match self {
             Range::Normal { begin, end } => {
                 Ok(Box::new((*begin..*end).map(|i| Value::new(i).into())))

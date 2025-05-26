@@ -1,13 +1,30 @@
+use std::sync::Arc;
+
 use criterion::{Criterion, criterion_group, criterion_main};
-use evalit::{Environment, VM, compile};
+use evalit::{Environment, Interpreter, Module, Object, VM, compile};
 
 fn run_script(code: &str) -> Result<(), String> {
-    let env = Environment::new();
-    let module = compile(code, &env).map_err(|e| e.to_string())?;
-    let mut vm = VM::new(module, env);
-    let _ret = futures::executor::block_on(async { vm.run().await }).unwrap();
+    Interpreter::eval(code, Environment::new());
 
     Ok(())
+}
+
+fn run_vm<T: Object>(program: Arc<Module>, env: Environment) -> T {
+    let mut vm = VM::new(program, env);
+
+    #[cfg(not(feature = "async"))]
+    return vm.run().unwrap().unwrap().take().into_inner().unwrap();
+
+    #[cfg(feature = "async")]
+    return futures::executor::block_on(async {
+        vm.run()
+            .await
+            .unwrap()
+            .unwrap()
+            .take()
+            .into_inner()
+            .unwrap()
+    });
 }
 
 fn bench_simple_math(c: &mut Criterion) {
@@ -64,8 +81,8 @@ fn bench_fibonacci(c: &mut Criterion) {
 
     c.bench_function("fibonacci", |b| {
         b.iter(|| {
-            let mut vm = VM::new(module.clone(), env.clone());
-            let _ret = futures::executor::block_on(async { vm.run().await }).unwrap();
+            let ret = run_vm::<i64>(module.clone(), env.clone());
+            assert_eq!(ret, 55);
         })
     });
 }

@@ -32,9 +32,23 @@ impl Object for String {
         Err(RuntimeError::invalid_type::<String>(other))
     }
 
+    #[cfg(feature = "async")]
     fn make_iterator(
         &self,
     ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
+        let chars = self
+            .chars()
+            .clone()
+            .map(ValueRef::new)
+            .collect::<Vec<ValueRef>>();
+
+        let iter = chars.into_iter();
+
+        Ok(Box::new(iter))
+    }
+
+    #[cfg(not(feature = "async"))]
+    fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
         let chars = self
             .chars()
             .clone()

@@ -77,9 +77,17 @@ where
         ))
     }
 
+    #[cfg(feature = "async")]
     fn make_iterator(
         &self,
     ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
+        Ok(Box::new(self.clone().into_iter().map(|(k, v)| {
+            ValueRef::new((ValueRef::new(k.clone()), v.clone()))
+        })))
+    }
+
+    #[cfg(not(feature = "async"))]
+    fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
         Ok(Box::new(self.clone().into_iter().map(|(k, v)| {
             ValueRef::new((ValueRef::new(k.clone()), v.clone()))
         })))

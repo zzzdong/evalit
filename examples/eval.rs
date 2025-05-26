@@ -1,4 +1,4 @@
-use evalit::{Environment, ValueRef, eval_blocking};
+use evalit::{Environment, ValueRef, eval};
 
 fn main() {
     let mut env = Environment::new();
@@ -16,7 +16,7 @@ fn main() {
     return sum;
     "#;
 
-    let retval = eval_blocking::<i64>(script, env).unwrap();
+    let retval = eval::<i64>(script, env).unwrap();
 
     println!("ret: {retval:?}");
 

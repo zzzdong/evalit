@@ -4,13 +4,26 @@ use crate::{Object, RuntimeError, ValueRef};
 
 use super::metatable::MetaTable;
 
+#[cfg(feature = "async")]
 /// Enumerator
 pub struct Enumerator {
     iter: Box<dyn Iterator<Item = ValueRef> + Send + Sync>,
 }
 
+#[cfg(not(feature = "async"))]
+/// Enumerator
+pub struct Enumerator {
+    iter: Box<dyn Iterator<Item = ValueRef>>,
+}
+
 impl Enumerator {
+    #[cfg(feature = "async")]
     pub fn new(iter: Box<dyn Iterator<Item = ValueRef> + Send + Sync>) -> Self {
+        Self { iter }
+    }
+
+    #[cfg(not(feature = "async"))]
+    pub fn new(iter: Box<dyn Iterator<Item = ValueRef>>) -> Self {
         Self { iter }
     }
 

@@ -4,14 +4,14 @@ use std::{
     sync::Arc,
 };
 
-use log::debug;
-
+#[cfg(feature = "async")]
 use super::Promise;
 use super::{
     Enumerator, EnvVariable, Environment, NativeFunction, Object, Range, RuntimeError,
     UserFunction, Value, value::ValueRef,
 };
 use crate::bytecode::{Bytecode, Constant, FunctionId, Module, Opcode, Operand, Register};
+use log::debug;
 
 const STACK_MAX: usize = 0x0FFF;
 
@@ -31,6 +31,7 @@ impl VM {
         }
     }
 
+    #[cfg(feature = "async")]
     pub async fn run(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
         debug!("===constants===");
         for (i, constant) in self.program.constants.iter().enumerate() {
@@ -72,6 +73,48 @@ impl VM {
                     let ret = promise.await;
                     self.set_value(operands[0], ret)?;
                     self.state.jump_offset(1);
+                }
+
+                _ => {
+                    self.run_instruction(&inst)?;
+                }
+            }
+        }
+
+        Ok(None)
+    }
+
+    #[cfg(not(feature = "async"))]
+    pub fn run(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
+        debug!("===constants===");
+        for (i, constant) in self.program.constants.iter().enumerate() {
+            debug!("{i}: {constant:?}");
+        }
+        debug!("===instructions===");
+        for (i, inst) in self.program.instructions.iter().enumerate() {
+            debug!("{i}: {inst:?}");
+        }
+
+        while let Some(inst) = self.program.instructions.get(self.state.pc).cloned() {
+            debug!("{}", self.state);
+            debug!("{inst:?}");
+
+            let Bytecode { opcode, operands } = inst;
+
+            match opcode {
+                Opcode::Halt => {
+                    let ret = self.get_value(Operand::Register(Register::Rv))?;
+                    return Ok(Some(ret));
+                }
+
+                Opcode::Ret => {
+                    if self.state.ctrl_stack_reached_bottom() {
+                        let ret = self.get_value(Operand::Register(Register::Rv))?;
+                        return Ok(Some(ret));
+                    }
+                    let pc = self.state.popc()?;
+
+                    self.state.jump(pc);
                 }
 
                 _ => {

@@ -1,15 +1,16 @@
 use std::any::type_name_of_val;
 
-use object::OperateKind;
-
 mod environment;
 mod object;
 mod value;
 mod vm;
 
 use crate::bytecode::{Operand, Register};
-pub use environment::{EnvVariable, Environment};
 
+use object::OperateKind;
+
+pub use environment::{EnvVariable, Environment};
+#[cfg(feature = "async")]
 pub use object::Promise;
 pub use object::{Callable, Enumerator, NativeFunction, Null, Object, Range};
 pub use value::{Value, ValueRef};

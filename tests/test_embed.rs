@@ -5,10 +5,15 @@ use evalit::{Environment, Error, Module, Object, RuntimeError, VM, Value, ValueR
 use utils::init_logger;
 
 fn run_vm(program: Arc<Module>, env: Environment) -> Result<Value, Error> {
+    let mut vm = VM::new(program, env);
+    #[cfg(not(feature = "async"))]
+    let ret = vm.run().unwrap();
+
+    #[cfg(feature = "async")]
     let ret = futures::executor::block_on(async {
-        let mut vm = VM::new(program, env);
-        vm.run().await
-    })?;
+        let ret = vm.run().await;
+        ret.unwrap()
+    });
 
     Ok(ret.unwrap().take())
 }
@@ -151,9 +156,9 @@ fn test_rust_object_interop() {
             write!(f, "MyStruct")
         }
 
-        fn property_get(&self, property: &str) -> Result<Value, evalit::RuntimeError> {
+        fn property_get(&self, property: &str) -> Result<ValueRef, evalit::RuntimeError> {
             match property {
-                "value" => Ok(Value::new(self.value)),
+                "value" => Ok(ValueRef::new(self.value)),
                 _ => Err(RuntimeError::missing_property_getter::<Self>(property)),
             }
         }
@@ -231,99 +236,105 @@ fn test_rust_object_interop() {
     assert_eq!(my_obj.value, 100);
 }
 
-#[tokio::test]
-async fn test_rust_async_interop() {
-    use evalit::Promise;
-    use tokio::time::Instant;
+#[cfg(feature = "async")]
+mod async_embed {
+    use evalit::{Environment, VM, Value, compile};
 
-    init_logger();
+    use crate::utils::init_logger;
 
-    // 定义一个异步Rust函数
-    fn greet_async(name: String) -> Promise {
-        Promise::new(async move {
-            println!("Hello, {}!", name);
-            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
-            Value::new(format!("Hello, {}!", name))
-        })
+    #[tokio::test]
+    async fn test_rust_async_interop() {
+        use evalit::Promise;
+        use tokio::time::Instant;
+
+        init_logger();
+
+        // 定义一个异步Rust函数
+        fn greet_async(name: String) -> Promise {
+            Promise::new(async move {
+                println!("Hello, {}!", name);
+                tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+                Value::new(format!("Hello, {}!", name))
+            })
+        }
+
+        let mut env = Environment::new();
+
+        // 将异步Rust函数注册到脚本环境中
+        env.define_function("greet_async", greet_async);
+
+        let script = r#"
+        // 使用Rust异步函数
+        let message = greet_async("World").await;
+        if message != "Hello, World!" {
+            return false;
+        }
+
+        // 测试组合使用
+        let composed = greet_async("Script").await + " Welcome to Evalit";
+        if composed != "Hello, Script! Welcome to Evalit" {
+            return false;
+        }
+
+        return true;
+        "#;
+
+        let program = compile(script, &env).unwrap();
+
+        let start = Instant::now();
+        let mut vm = VM::new(program, env);
+        let retval = vm.run().await.unwrap().unwrap().take();
+        let elapsed = start.elapsed();
+
+        assert_eq!(retval, true);
+        assert!(elapsed.as_secs() > 1);
     }
 
-    let mut env = Environment::new();
+    #[tokio::test]
+    async fn test_rust_tcp_interop() {
+        use evalit::Promise;
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        use tokio::net::{TcpListener, TcpStream};
 
-    // 将异步Rust函数注册到脚本环境中
-    env.define_function("greet_async", greet_async);
+        init_logger();
 
-    let script = r#"
-    // 使用Rust异步函数
-    let message = greet_async("World").await;
-    if message != "Hello, World!" {
-        return false;
-    }
+        // 启动一个本地TCP服务器
+        let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let addr = listener.local_addr().unwrap();
+        let addr = addr.to_string();
 
-    // 测试组合使用
-    let composed = greet_async("Script").await + " Welcome to Evalit";
-    if composed != "Hello, Script! Welcome to Evalit" {
-        return false;
-    }
+        // 在后台启动一个异步任务来处理连接
+        tokio::spawn(async move {
+            let (mut stream, _) = listener.accept().await.unwrap();
+            let mut buffer = [0; 512];
+            let n = stream.read(&mut buffer).await.unwrap();
+            stream.write_all(b"Echo: ").await.unwrap();
+            stream.write_all(&buffer[0..n]).await.unwrap();
+        });
 
-    return true;
-    "#;
+        // 定义一个异步TCP客户端函数
+        async fn tcp_client(addr: std::net::SocketAddr) -> String {
+            let mut stream = TcpStream::connect(addr).await.unwrap();
+            stream.write_all(b"Hello, TCP Server!").await.unwrap();
+            let mut response = vec![0; 512];
+            let n = stream.read(&mut response).await.unwrap();
+            String::from_utf8_lossy(&response[..n]).to_string()
+        }
 
-    let program = compile(script, &env).unwrap();
+        let mut env = Environment::new();
 
-    let start = Instant::now();
-    let mut vm = VM::new(program, env);
-    let retval = vm.run().await.unwrap().unwrap().take();
-    let elapsed = start.elapsed();
+        env.insert("addr", addr);
 
-    assert_eq!(retval, true);
-    assert!(elapsed.as_secs() > 1);
-}
+        // 将异步Rust函数注册到脚本环境中
+        env.define_function("tcp_client", move |addr: String| {
+            let addr: std::net::SocketAddr = addr.parse().unwrap();
+            Promise::new(async move {
+                let s = tcp_client(addr).await;
+                Value::new(s)
+            })
+        });
 
-#[tokio::test]
-async fn test_rust_tcp_interop() {
-    use evalit::Promise;
-    use tokio::io::{AsyncReadExt, AsyncWriteExt};
-    use tokio::net::{TcpListener, TcpStream};
-
-    init_logger();
-
-    // 启动一个本地TCP服务器
-    let listener = TcpListener::bind("127.0.0.1:0").await.unwrap();
-    let addr = listener.local_addr().unwrap();
-    let addr = addr.to_string();
-
-    // 在后台启动一个异步任务来处理连接
-    tokio::spawn(async move {
-        let (mut stream, _) = listener.accept().await.unwrap();
-        let mut buffer = [0; 512];
-        let n = stream.read(&mut buffer).await.unwrap();
-        stream.write_all(b"Echo: ").await.unwrap();
-        stream.write_all(&buffer[0..n]).await.unwrap();
-    });
-
-    // 定义一个异步TCP客户端函数
-    async fn tcp_client(addr: std::net::SocketAddr) -> String {
-        let mut stream = TcpStream::connect(addr).await.unwrap();
-        stream.write_all(b"Hello, TCP Server!").await.unwrap();
-        let mut response = vec![0; 512];
-        let n = stream.read(&mut response).await.unwrap();
-        String::from_utf8_lossy(&response[..n]).to_string()
-    }
-
-    let mut env = Environment::new();
-
-    env.insert("addr", addr);
-
-    // 将异步Rust函数注册到脚本环境中
-    env.define_function("tcp_client", move |addr: String| {
-        let addr: std::net::SocketAddr = addr.parse().unwrap();
-        Promise::new(async move {
-            let s = tcp_client(addr).await;
-            Value::new(s)
-        })
-    });
-
-    let script = r#"
+        let script = r#"
     let response = tcp_client(addr).await;
     if !response.contains("Echo: Hello, TCP Server!") {
         return false;
@@ -332,9 +343,10 @@ async fn test_rust_tcp_interop() {
     return true;
     "#;
 
-    let program = compile(script, &env).unwrap();
-    let mut vm = VM::new(program, env);
-    let retval = vm.run().await.unwrap().unwrap().take();
+        let program = compile(script, &env).unwrap();
+        let mut vm = VM::new(program, env);
+        let retval = vm.run().await.unwrap().unwrap().take();
 
-    assert_eq!(retval, true);
+        assert_eq!(retval, true);
+    }
 }

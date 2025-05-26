@@ -1,5 +1,15 @@
-use parking_lot::{lock_api::MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard};
-use std::{fmt, sync::Arc};
+use std::{
+    cell::{Ref, RefCell, RefMut},
+    fmt,
+    rc::Rc,
+};
+
+#[cfg(feature = "async")]
+use parking_lot::{
+    MappedRwLockReadGuard, MappedRwLockWriteGuard, RwLock, RwLockReadGuard, RwLockWriteGuard,
+};
+#[cfg(feature = "async")]
+use std::sync::Arc;
 
 use super::{Immd, Null, Object};
 use crate::bytecode::{Constant, Primitive};
@@ -41,9 +51,11 @@ impl Value {
     }
 }
 
+#[cfg(feature = "async")]
 #[derive(Debug, Clone)]
 pub struct ValueRef(Arc<RwLock<Value>>);
 
+#[cfg(feature = "async")]
 impl ValueRef {
     pub fn new<T: Object + 'static>(object: T) -> Self {
         ValueRef(Arc::new(RwLock::new(Value::new(object))))
@@ -61,7 +73,7 @@ impl ValueRef {
         self.0.write()
     }
 
-    pub fn as_object(&self) -> MappedRwLockReadGuard<'_, parking_lot::RawRwLock, dyn Object> {
+    pub fn as_object(&self) -> MappedRwLockReadGuard<'_, dyn Object> {
         let guard = self.0.read();
         RwLockReadGuard::map(guard, |value: &Value| value.as_object())
     }
@@ -82,6 +94,68 @@ impl ValueRef {
     pub fn take(&self) -> Value {
         let mut lock = self.0.write();
         std::mem::replace(&mut *lock, Value::null())
+    }
+
+    pub fn from_constant(constant: &Constant) -> Self {
+        match constant {
+            Constant::String(s) => Self::new(s.to_string()),
+        }
+    }
+
+    pub fn from_primitive(primitive: Primitive) -> Self {
+        match primitive {
+            Primitive::Null => Self::null(),
+            Primitive::Byte(b) => Self::new(b),
+            Primitive::Boolean(b) => Self::new(b),
+            Primitive::Integer(i) => Self::new(i),
+            Primitive::Float(f) => Self::new(f),
+            Primitive::Char(c) => Self::new(c),
+        }
+    }
+}
+
+#[cfg(not(feature = "async"))]
+#[derive(Debug, Clone)]
+pub struct ValueRef(Rc<RefCell<Value>>);
+
+#[cfg(not(feature = "async"))]
+impl ValueRef {
+    pub fn new<T: Object + 'static>(object: T) -> Self {
+        ValueRef(Rc::new(RefCell::new(Value::new(object))))
+    }
+
+    pub fn from_value(value: Value) -> Self {
+        ValueRef(Rc::new(RefCell::new(value)))
+    }
+
+    pub fn value(&self) -> Ref<Value> {
+        self.0.borrow()
+    }
+
+    pub fn value_mut(&self) -> RefMut<Value> {
+        self.0.borrow_mut()
+    }
+
+    pub fn as_object(&self) -> Ref<dyn Object> {
+        let guard = self.0.borrow();
+        Ref::map(guard, |value| value.as_object())
+    }
+
+    pub fn as_object_mut(&self) -> RefMut<dyn Object> {
+        let guard = self.0.borrow_mut();
+        RefMut::map(guard, |value| value.as_object_mut())
+    }
+
+    pub fn null() -> Self {
+        Self::new(Null {})
+    }
+
+    pub fn immd(immd: isize) -> Self {
+        Self::new(Immd(immd))
+    }
+
+    pub fn take(&self) -> Value {
+        self.0.replace(Value::null())
     }
 
     pub fn from_constant(constant: &Constant) -> Self {
