@@ -18,18 +18,25 @@ keywords = ["interpreter", "scripting"]
 
 [features]
 default = ["async"]
-async = ["futures", "tokio"]
-
+async = [ "futures", "parking_lot" ]
 
 [dependencies]
 futures = { version = "0.3", optional = true }
 log = "0.4"
+parking_lot = { version = "0.12", optional = true }
 pest = "2"
 pest_derive = "2"
 petgraph = "0.8"
-tokio = { version = "1", features = ["full"], optional = true }
+
 
 [dev-dependencies]
+criterion = "0.6"
 env_logger = "0.11"
-reqwest = { version = "0.12", features = ["rustls-tls"] }
+hyper = { version = "1", features = ["full"] }
+hyper-util = { version = "0.1", features = ["full"] }
 tokio = { version = "1", features = ["full"] }
+
+
+[[bench]]
+name = "vm_benchmark"
+harness = false

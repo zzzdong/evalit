@@ -6,7 +6,7 @@ use pest::{
     pratt_parser::{Assoc, Op, PrattParser},
 };
 
-use super::ast::*;
+use super::ast::syntax::*;
 
 #[derive(Debug)]
 pub struct ParseError(Box<pest::error::Error<Rule>>);
@@ -39,7 +39,7 @@ impl std::error::Error for ParseError {}
 type Result<T> = std::result::Result<T, ParseError>;
 
 #[derive(pest_derive::Parser)]
-#[grammar = "ast/grammar.pest"]
+#[grammar = "compiler/ast/grammar.pest"]
 struct PestParser;
 
 pub fn parse_file(input: &str) -> Result<Program> {
@@ -73,7 +73,7 @@ fn pratt_parser() -> &'static PrattParser<Rule> {
                 | Op::infix(Rule::sub_assign_operator, Assoc::Right)
                 | Op::infix(Rule::mul_assign_operator, Assoc::Right)
                 | Op::infix(Rule::div_assign_operator, Assoc::Right)
-                | Op::infix(Rule::mod_assign_operator, Assoc::Right))
+                | Op::infix(Rule::rem_assign_operator, Assoc::Right))
             .op(Op::infix(Rule::range_operator, Assoc::Left))
             .op(Op::infix(Rule::or_operator, Assoc::Left))
             .op(Op::infix(Rule::and_operator, Assoc::Left))
@@ -87,7 +87,7 @@ fn pratt_parser() -> &'static PrattParser<Rule> {
                 | Op::infix(Rule::sub_operator, Assoc::Left))
             .op(Op::infix(Rule::mul_operator, Assoc::Left)
                 | Op::infix(Rule::div_operator, Assoc::Left)
-                | Op::infix(Rule::mod_operator, Assoc::Left))
+                | Op::infix(Rule::rem_operator, Assoc::Left))
             .op(Op::infix(Rule::pow_operator, Assoc::Right))
             .op(Op::prefix(Rule::negative_operator) | Op::prefix(Rule::not_operator))
             .op(Op::postfix(Rule::try_operator))
@@ -388,6 +388,7 @@ fn parse_type_expression(pair: Pair<Rule>) -> TypeExpression {
     let pair = pair.into_inner().next().unwrap();
 
     match pair.as_rule() {
+        Rule::type_any => TypeExpression::Any,
         Rule::type_bool => TypeExpression::Boolean,
         Rule::type_byte => TypeExpression::Byte,
         Rule::type_int => TypeExpression::Integer,
@@ -435,6 +436,7 @@ fn parse_primary(pair: Pair<Rule>) -> Result<ExpressionNode> {
         Rule::identifier | Rule::literal | Rule::atom => parse_atom(pair),
         Rule::expression => parse_expression(pair),
         Rule::grouped_expression => parse_expression(pair.into_inner().next().unwrap()),
+        Rule::struct_expression => parse_struct_expression(pair),
         _ => unreachable!("unknown primary: {:?}", pair),
     }
 }
@@ -465,96 +467,36 @@ fn parse_infix(
 
     let expr = match op.as_rule() {
         Rule::assign_operator => {
-            let value = Box::new(rhs?);
-            let object = Box::new(lhs?);
+            let lhs_expr = lhs?;
+            let rhs_expr = rhs?;
 
-            Expression::Assign(AssignExpression { object, value })
+            match &lhs_expr.node {
+                Expression::PropertyGet(PropertyGetExpression { object, property }) => {
+                    Expression::PropertySet(PropertySetExpression {
+                        object: object.clone(),
+                        property: property.clone(),
+                        value: Box::new(rhs_expr),
+                    })
+                }
+                Expression::IndexGet(IndexGetExpression { object, index }) => {
+                    Expression::IndexSet(IndexSetExpression {
+                        object: object.clone(),
+                        index: index.clone(),
+
+                        value: Box::new(rhs_expr),
+                    })
+                }
+                _ => Expression::Assign(AssignExpression {
+                    object: Box::new(lhs_expr),
+                    value: Box::new(rhs_expr),
+                }),
+            }
         }
-        Rule::add_assign_operator => {
-            let value = Box::new(rhs?);
-            let object = Box::new(lhs?);
-
-            let expr = Expression::Binary(BinaryExpression {
-                op: BinOp::Add,
-                lhs: object.clone(),
-                rhs: value.clone(),
-            });
-
-            let node = AstNode::new(expr, span, Type::Unknown);
-
-            Expression::Assign(AssignExpression {
-                object,
-                value: Box::new(node),
-            })
-        }
-        Rule::sub_assign_operator => {
-            let value = Box::new(rhs?);
-            let object = Box::new(lhs?);
-
-            let expr = Expression::Binary(BinaryExpression {
-                op: BinOp::Sub,
-                lhs: object.clone(),
-                rhs: value.clone(),
-            });
-
-            let node = AstNode::new(expr, span, Type::Unknown);
-
-            Expression::Assign(AssignExpression {
-                object,
-                value: Box::new(node),
-            })
-        }
-        Rule::mul_assign_operator => {
-            let value = Box::new(rhs?);
-            let object = Box::new(lhs?);
-
-            let expr = Expression::Binary(BinaryExpression {
-                op: BinOp::Mul,
-                lhs: object.clone(),
-                rhs: value.clone(),
-            });
-
-            let node = AstNode::new(expr, span, Type::Unknown);
-
-            Expression::Assign(AssignExpression {
-                object,
-                value: Box::new(node),
-            })
-        }
-        Rule::div_assign_operator => {
-            let value = Box::new(rhs?);
-            let object = Box::new(lhs?);
-
-            let expr = Expression::Binary(BinaryExpression {
-                op: BinOp::Div,
-                lhs: object.clone(),
-                rhs: value.clone(),
-            });
-
-            let node = AstNode::new(expr, span, Type::Unknown);
-
-            Expression::Assign(AssignExpression {
-                object,
-                value: Box::new(node),
-            })
-        }
-        Rule::mod_assign_operator => {
-            let value = Box::new(rhs?);
-            let object = Box::new(lhs?);
-
-            let expr = Expression::Binary(BinaryExpression {
-                op: BinOp::Mod,
-                lhs: object.clone(),
-                rhs: value.clone(),
-            });
-
-            let node = AstNode::new(expr, span, Type::Unknown);
-
-            Expression::Assign(AssignExpression {
-                object,
-                value: Box::new(node),
-            })
-        }
+        Rule::add_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Add),
+        Rule::sub_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Sub),
+        Rule::mul_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Mul),
+        Rule::div_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Div),
+        Rule::rem_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Rem),
         _ => Expression::Binary(BinaryExpression {
             op: op.as_str().parse::<BinOp>().unwrap(),
             lhs: Box::new(lhs?),
@@ -563,6 +505,50 @@ fn parse_infix(
     };
 
     Ok(AstNode::new(expr, span, Type::Unknown))
+}
+
+fn create_assign_binary_expression(
+    lhs: Result<ExpressionNode>,
+    rhs: Result<ExpressionNode>,
+    span: Span,
+    bin_op: BinOp,
+) -> Expression {
+    let lhs_expr = lhs.unwrap();
+    let rhs_expr = rhs.unwrap();
+
+    if let Expression::PropertyGet(PropertyGetExpression { object, property }) =
+        &lhs_expr.clone().node
+    {
+        // 构造 BinaryExpression 作为 PropertySet 的 value
+        let binary = Expression::Binary(BinaryExpression {
+            op: bin_op,
+            lhs: Box::new(lhs_expr),
+            rhs: Box::new(rhs_expr),
+        });
+
+        let binary_node = AstNode::new(binary, span, Type::Unknown);
+
+        // 构造 PropertySetExpression
+        Expression::PropertySet(PropertySetExpression {
+            object: object.clone(),
+            property: property.clone(),
+            value: Box::new(binary_node),
+        })
+    } else {
+        // 否则构造普通的 Assign + Binary 操作
+        let binary = Expression::Binary(BinaryExpression {
+            op: bin_op,
+            lhs: Box::new(lhs_expr.clone()),
+            rhs: Box::new(rhs_expr),
+        });
+
+        let binary_node = AstNode::new(binary, span, Type::Unknown);
+
+        Expression::Assign(AssignExpression {
+            object: Box::new(lhs_expr),
+            value: Box::new(binary_node),
+        })
+    }
 }
 
 fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<ExpressionNode> {
@@ -575,19 +561,31 @@ fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<Expressi
         Rule::try_operator => Expression::Try(object),
         Rule::member_operator => {
             let property = op.into_inner().next().unwrap().as_str().to_string();
-            let expr = MemberExpression { object, property };
-            Expression::Member(expr)
+            let expr = PropertyGetExpression { object, property };
+            Expression::PropertyGet(expr)
         }
         Rule::call_operator => {
             let args = op.into_inner().next().unwrap();
             let args: Result<Vec<ExpressionNode>> =
                 args.into_inner().map(parse_expression).collect();
-            let expr = CallExpression {
-                func: object,
-                args: args?,
-            };
 
-            Expression::Call(expr)
+            match object.node {
+                Expression::PropertyGet(PropertyGetExpression { object, property }) => {
+                    // Convert MemberExpression + Call to MethodCall
+                    Expression::CallMethod(CallMethodExpression {
+                        object,
+                        method: property,
+                        args: args?,
+                    })
+                }
+                _ => {
+                    // Normal function call
+                    Expression::Call(CallExpression {
+                        func: object,
+                        args: args?,
+                    })
+                }
+            }
         }
         Rule::index_operator => {
             let index = op.into_inner().next().unwrap();
@@ -632,12 +630,12 @@ fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<Expressi
                     Expression::Slice(expr)
                 }
                 _ => {
-                    let expr = IndexExpression {
+                    let expr = IndexGetExpression {
                         object,
                         index: Box::new(inner),
                     };
 
-                    Expression::Index(expr)
+                    Expression::IndexGet(expr)
                 }
             }
         }
@@ -685,6 +683,49 @@ fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<Expressi
     };
 
     Ok(AstNode::new(expr, span, Type::Unknown))
+}
+
+fn parse_struct_expression(pair: Pair<Rule>) -> Result<ExpressionNode> {
+    println!("parse_struct_expression, {pair:?}");
+
+    let span = Span::from_pair(&pair);
+
+    let mut pairs = pair.into_inner();
+
+    let name = pairs.next().unwrap();
+    assert_eq!(name.as_rule(), Rule::identifier);
+    let name = name.as_str().to_string();
+
+    let fields = pairs.next().unwrap().into_inner();
+
+    let fields = fields
+        .map(|pair| parse_struct_expression_field(pair))
+        .collect::<Result<Vec<_>>>()?;
+
+    let expr = StructExpression {
+        name: name.clone(),
+        fields,
+    };
+
+    Ok(AstNode::new(
+        Expression::StructExpr(expr),
+        span,
+        Type::Unknown,
+    ))
+}
+
+fn parse_struct_expression_field(pair: Pair<Rule>) -> Result<StructExprField> {
+    println!("parse_struct_expression_field, {pair:?}");
+
+    let mut pairs = pair.into_inner();
+
+    let name = pairs.next().unwrap();
+    assert_eq!(name.as_rule(), Rule::identifier);
+    let name = name.as_str().to_string();
+
+    let value = parse_expression(pairs.next().unwrap())?;
+
+    Ok(StructExprField { name, value })
 }
 
 fn parse_atom(pair: Pair<Rule>) -> Result<ExpressionNode> {
@@ -1072,32 +1113,11 @@ mod test {
     }
 
     #[test]
-    fn test_member_expression() {
-        let input = r#"a.b.c"#;
-        let pairs = PestParser::parse(Rule::expression, input).unwrap();
-        let expression = parse_expression_pairs(pairs).unwrap();
-        if let Expression::Member(member) = expression.node {
-            assert_eq!(member.property, "c");
-            if let Expression::Member(inner_member) = member.object.node {
-                assert_eq!(inner_member.property, "b");
-                assert_eq!(
-                    inner_member.object.node,
-                    Expression::Identifier(IdentifierExpression("a".to_string()))
-                );
-            } else {
-                panic!("Expected inner member expression");
-            }
-        } else {
-            panic!("Expected member expression");
-        }
-    }
-
-    #[test]
-    fn test_index_expression() {
+    fn test_index_get_expression() {
         let input = r#"a[1]"#;
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
-        if let Expression::Index(index) = expression.node {
+        if let Expression::IndexGet(index) = expression.node {
             assert_eq!(
                 index.object.node,
                 Expression::Identifier(IdentifierExpression("a".to_string()))
@@ -1396,7 +1416,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Binary(binary) = expression.node {
-            assert_eq!(binary.op, BinOp::Mod);
+            assert_eq!(binary.op, BinOp::Rem);
             assert_eq!(
                 binary.lhs.node,
                 Expression::Literal(LiteralExpression::Integer(7))
@@ -1915,6 +1935,176 @@ mod test {
             }
         } else {
             panic!("Expected expression statement");
+        }
+    }
+
+    #[test]
+    fn test_property_get_expression() {
+        let input = r#"a.b"#;
+        let pairs = PestParser::parse(Rule::expression, input).unwrap();
+        let expression = parse_expression_pairs(pairs).unwrap();
+        if let Expression::PropertyGet(property_get) = expression.node {
+            assert_eq!(property_get.property, "b");
+            assert_eq!(
+                property_get.object.node,
+                Expression::Identifier(IdentifierExpression("a".to_string()))
+            );
+        } else {
+            panic!("Expected property get expression");
+        }
+
+        let input = r#"a.b.c"#;
+        let pairs = PestParser::parse(Rule::expression, input).unwrap();
+        let expression = parse_expression_pairs(pairs).unwrap();
+        if let Expression::PropertyGet(property_get) = expression.node {
+            assert_eq!(property_get.property, "c");
+            if let Expression::PropertyGet(inner_property_get) = property_get.object.node {
+                assert_eq!(inner_property_get.property, "b");
+                assert_eq!(
+                    inner_property_get.object.node,
+                    Expression::Identifier(IdentifierExpression("a".to_string()))
+                );
+            } else {
+                panic!("Expected inner member expression");
+            }
+        } else {
+            panic!("Expected member expression");
+        }
+    }
+
+    #[test]
+    fn test_property_set_expression() {
+        let input = r#"a.b = 1"#;
+        let pairs = PestParser::parse(Rule::expression, input).unwrap();
+        let expression = parse_expression_pairs(pairs).unwrap();
+        if let Expression::PropertySet(property_set) = expression.node {
+            assert_eq!(property_set.property, "b");
+            assert_eq!(
+                property_set.object.node,
+                Expression::Identifier(IdentifierExpression("a".to_string()))
+            );
+            assert_eq!(
+                property_set.value.node,
+                Expression::Literal(LiteralExpression::Integer(1))
+            );
+        } else {
+            panic!("Expected property set expression");
+        }
+    }
+
+    #[test]
+    fn test_index_set_expression() {
+        let input = r#"a[1] = 42"#;
+        let pairs = PestParser::parse(Rule::expression, input).unwrap();
+        let expression = parse_expression_pairs(pairs).unwrap();
+
+        if let Expression::IndexSet(IndexSetExpression {
+            object,
+            index,
+            value,
+        }) = expression.node
+        {
+            assert_eq!(
+                object.node,
+                Expression::Identifier(IdentifierExpression("a".to_string()))
+            );
+            assert_eq!(
+                index.node,
+                Expression::Literal(LiteralExpression::Integer(1))
+            );
+
+            assert_eq!(
+                value.node,
+                Expression::Literal(LiteralExpression::Integer(42))
+            );
+        } else {
+            panic!("Expected index set expression");
+        }
+    }
+
+    #[test]
+    fn test_call_method_expression() {
+        let input = r#"a.b(1, 2)"#;
+        let pairs = PestParser::parse(Rule::expression, input).unwrap();
+        let expression = parse_expression_pairs(pairs).unwrap();
+        if let Expression::CallMethod(call_method) = expression.node {
+            assert_eq!(call_method.method, "b");
+            assert_eq!(
+                call_method.object.node,
+                Expression::Identifier(IdentifierExpression("a".to_string()))
+            );
+            assert_eq!(call_method.args.len(), 2);
+            assert_eq!(
+                call_method.args[0].node,
+                Expression::Literal(LiteralExpression::Integer(1))
+            );
+            assert_eq!(
+                call_method.args[1].node,
+                Expression::Literal(LiteralExpression::Integer(2))
+            );
+        } else {
+            panic!("Expected method call expression");
+        }
+    }
+
+    #[test]
+    fn test_create_assign_binary_expression() {
+        // 测试 PropertyGet + Assign 操作
+        let input = r#"a.b = a.b + 1"#;
+        let pairs = PestParser::parse(Rule::expression, input).unwrap();
+        let expression = parse_expression_pairs(pairs).unwrap();
+        if let Expression::PropertySet(property_set) = expression.node {
+            assert_eq!(property_set.property, "b");
+            assert_eq!(
+                property_set.object.node,
+                Expression::Identifier(IdentifierExpression("a".to_string()))
+            );
+            if let Expression::Binary(binary) = property_set.value.node {
+                assert_eq!(binary.op, BinOp::Add);
+                if let Expression::PropertyGet(property_get) = binary.lhs.node {
+                    assert_eq!(property_get.property, "b");
+                    assert_eq!(
+                        property_get.object.node,
+                        Expression::Identifier(IdentifierExpression("a".to_string()))
+                    );
+                } else {
+                    panic!("Expected PropertyGet on lhs");
+                }
+                assert_eq!(
+                    binary.rhs.node,
+                    Expression::Literal(LiteralExpression::Integer(1))
+                );
+            } else {
+                panic!("Expected binary expression in value");
+            }
+        } else {
+            panic!("Expected PropertySet expression");
+        }
+
+        // 测试普通变量的 Assign + Binary 操作
+        let input = r#"a = a + 1"#;
+        let pairs = PestParser::parse(Rule::expression, input).unwrap();
+        let expression = parse_expression_pairs(pairs).unwrap();
+        if let Expression::Assign(assign) = expression.node {
+            assert_eq!(
+                assign.object.node,
+                Expression::Identifier(IdentifierExpression("a".to_string()))
+            );
+            if let Expression::Binary(binary) = assign.value.node {
+                assert_eq!(binary.op, BinOp::Add);
+                assert_eq!(
+                    binary.lhs.node,
+                    Expression::Identifier(IdentifierExpression("a".to_string()))
+                );
+                assert_eq!(
+                    binary.rhs.node,
+                    Expression::Literal(LiteralExpression::Integer(1))
+                );
+            } else {
+                panic!("Expected binary expression in value");
+            }
+        } else {
+            panic!("Expected Assign expression");
         }
     }
 }

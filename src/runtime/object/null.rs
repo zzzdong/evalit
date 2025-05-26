@@ -10,15 +10,11 @@ impl Object for Null {
         f.write_str("null")
     }
 
-    fn compare(&self, other: &super::Value) -> Result<std::cmp::Ordering, crate::RuntimeError> {
-        if let Some(other) = other.downcast_ref::<Self>() {
-            return Ok(self.partial_cmp(other).unwrap());
+    fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
+        match other.downcast_ref::<Null>() {
+            Some(_) => Ok(Value::new(true)),
+            None => Ok(Value::new(false)),
         }
-        // if let Some(other) = other.downcast_ref::<Option<_>>() {
-        //     return Ok(std::cmp::Ordering::Equal);
-        // }
-
-        Err(RuntimeError::invalid_type::<Null>(other))
     }
 }
 

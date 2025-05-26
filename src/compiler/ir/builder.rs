@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use crate::bytecode::Constant;
 use crate::bytecode::FunctionId;
 use crate::bytecode::Opcode;
@@ -214,14 +216,6 @@ pub trait InstBuilder {
         result
     }
 
-    fn iterator_has_next(&mut self, iter: Value) -> Value {
-        let result = self.alloc();
-
-        self.emit(Instruction::IteratorHasNext { iter, dst: result });
-
-        result
-    }
-
     fn iterate_next(&mut self, iter: Value) -> Value {
         let next = self.alloc();
         self.emit(Instruction::IterateNext { iter, dst: next });
@@ -241,19 +235,6 @@ pub trait InstBuilder {
 
         result
     }
-
-    // fn make_range_inclusive(&mut self, op: Opcode, begin: Option<Value>, end: Option<Value>) -> Value {
-    //     let result = self.alloc();
-
-    //     self.emit(Instruction::MakeRangeInclusive {
-    //         op,
-    //         begin,
-    //         end,
-    //         result,
-    //     });
-
-    //     result
-    // }
 
     fn make_array(&mut self) -> Value {
         let array = self.alloc();
@@ -290,6 +271,21 @@ pub trait InstBuilder {
         let dst = self.alloc();
         self.emit(Instruction::MakeSlice { dst, object, range });
         dst
+    }
+
+    fn make_struct(&mut self, fields: HashMap<Value, Value>) -> Value {
+        let object = self.alloc();
+        self.emit(Instruction::MakeStruct { dst: object });
+
+        for (field, value) in fields {
+            self.emit(Instruction::MakeStructField {
+                object,
+                field,
+                value,
+            });
+        }
+
+        object
     }
 
     fn await_promise(&mut self, promise: Value) -> Value {

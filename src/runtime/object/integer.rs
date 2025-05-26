@@ -7,6 +7,18 @@ macro_rules! impl_object_for_integer {
                 write!(f, "{}", self)
             }
 
+            fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
+                if let Some(other) = other.downcast_ref::<$ty>() {
+                    return Ok(Value::new(*self == *other));
+                }
+
+                if let Some(other) = other.downcast_ref::<i64>() {
+                    return Ok(Value::new(*self as i64 == *other));
+                }
+
+                Ok(Value::new(false))
+            }
+
             fn compare(&self, other: &Value) -> Result<std::cmp::Ordering, RuntimeError> {
                 match other.downcast_ref::<$ty>() {
                     Some(other) => Ok(self.cmp(&other)),
@@ -54,7 +66,7 @@ macro_rules! impl_object_for_integer {
                 }
             }
 
-            fn modulo(&self, other: &Value) -> Result<Value, RuntimeError> {
+            fn rem(&self, other: &Value) -> Result<Value, RuntimeError> {
                 match other.downcast_ref::<$ty>() {
                     Some(other) => match self.checked_rem(*other) {
                         Some(result) => Ok(Value::new(result)),

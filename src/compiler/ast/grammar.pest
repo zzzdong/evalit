@@ -108,8 +108,9 @@ tuple_pattern = { "(" ~ (pattern ~ ",")* ~ pattern ~ ")" }
 /// Expression
 expression = { prefix_operator* ~ primary ~ postfix* ~ (infix_operator ~ prefix_operator* ~ primary ~ postfix*)* }
 
-type_expression = { type_bool | type_byte | type_int | type_float | type_char | type_string | type_array | type_tuple | type_generic | type_impl | type_user_defined }
+type_expression = { type_any | type_bool | type_byte | type_int | type_float | type_char | type_string | type_array | type_tuple | type_generic | type_impl | type_user_defined }
 
+type_any          = { "any" }
 type_bool         = { "bool" }
 type_byte         = { "byte" }
 type_int          = { "int" }
@@ -123,17 +124,31 @@ type_impl         = { "impl" ~ type_expression }
 type_generic      = { identifier ~ "<" ~ type_expression ~ ("," ~ type_expression)* ~ ">" }
 
 /// Primary
-primary = _{ atom | grouped_expression }
+primary = _{ struct_expression | grouped_expression | atom }
 
 /// Grouped Expression
 grouped_expression = { "(" ~ expression ~ ")" }
+
+/// Struct Expression
+struct_expression = {
+    identifier ~ "{" ~ struct_expr_fields ~ "}"
+}
+
+struct_expr_fields = {
+    struct_expr_field ~ ("," ~ struct_expr_field)* ~ ","?
+} 
+
+struct_expr_field = {
+    identifier ~ ":" ~ expression
+}
+
 
 /// closure
 closure = { "|" ~ call_arg_list ~ "|" ~ block }
 
 /// Atom
 atom = {
-    literal
+  | literal
   | simple_path
   | identifier
   | tuple
@@ -152,13 +167,13 @@ path_seg = { identifier | "super" | "self" | "crate" }
 tuple = { "(" ~ (((expression ~ ",")+ ~ expression) | (expression ~ ",")) ~ ")" }
 
 /// Array
-array = { "[" ~ (expression ~ ("," ~ expression)*)? ~ "]" }
+array = { "[" ~ (expression ~ ("," ~ expression)*)? ~ ","? ~ "]" }
 
 /// map item
 map_item = { expression ~ ":" ~ expression }
 
 /// map
-map = { "{" ~ (map_item ~ ("," ~ map_item)*)? ~ "}" }
+map = { "{" ~ (map_item ~ ("," ~ map_item)*)? ~ ","? ~ "}" }
 
 /// Literal
 literal = { null | boolean | float | integer | string | character }
@@ -205,7 +220,7 @@ infix_operator = _{
   | sub_assign_operator
   | mul_assign_operator
   | div_assign_operator
-  | mod_assign_operator
+  | rem_assign_operator
   | not_equal_operator
   | less_equal_operator
   | greater_equal_operator
@@ -214,7 +229,7 @@ infix_operator = _{
   | sub_operator
   | mul_operator
   | div_operator
-  | mod_operator
+  | rem_operator
   | pow_operator
   | range_operator
   | and_operator
@@ -287,8 +302,8 @@ mul_operator = { "*" }
 /// A div operator.
 div_operator = { "/" }
 
-/// A mod operator.
-mod_operator = { "%" }
+/// A rem operator.
+rem_operator = { "%" }
 
 /// A pow operator.
 pow_operator = { "^" }
@@ -339,7 +354,7 @@ mul_assign_operator = { "*=" }
 div_assign_operator = { "/=" }
 
 /// A mod assign operator.
-mod_assign_operator = { "%=" }
+rem_assign_operator = { "%=" }
 
 /// A comma terminal.
 comma = { "," }
@@ -416,13 +431,8 @@ inner_doc = @{ (!newline ~ ANY)* }
 
 /// Keywords
 keywords = _{
-    "null"
-  | "bool"
-  | "byte"
-  | "char"
-  | "int"
-  | "float"
-  | "string"
+  "any"
+  | "null"
   | "true"
   | "false"
   | "enum"
@@ -443,6 +453,7 @@ keywords = _{
   | "try"
   | "catch"
   | "finally"
+  | "throw"
   | "return"
   | "if"
   | "else"
@@ -462,6 +473,7 @@ keywords = _{
   | "crate"
   | "trait"
   | "mod"
+  | "where"
 }
 
 keyword = @{ keywords ~ !("_" | alpha_num) }

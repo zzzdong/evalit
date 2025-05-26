@@ -151,6 +151,7 @@ impl From<BlockId> for Value {
 
 #[derive(Debug, Clone)]
 pub enum Instruction {
+    // Load and Move Instructions
     LoadArg {
         dst: Value,
         index: usize,
@@ -167,6 +168,8 @@ pub enum Instruction {
         dst: Value,
         src: Value,
     },
+
+    // Unary and Binary Operators
     UnaryOp {
         op: Opcode,
         dst: Value,
@@ -178,10 +181,14 @@ pub enum Instruction {
         lhs: Value,
         rhs: Value,
     },
+
+    // Async Support
     Await {
         promise: Value,
         dst: Value,
     },
+
+    // Function Call Instructions
     Call {
         func: Value,
         args: Vec<Value>,
@@ -197,6 +204,14 @@ pub enum Instruction {
         args: Vec<Value>,
         result: Value,
     },
+    PropertyCall {
+        object: Value,
+        property: Value,
+        args: Vec<Value>,
+        result: Value,
+    },
+
+    // Property and Index Access
     PropertyGet {
         dst: Value,
         object: Value,
@@ -207,12 +222,53 @@ pub enum Instruction {
         property: Value,
         value: Value,
     },
-    PropertyCall {
+    IndexGet {
+        dst: Value,
         object: Value,
-        property: Value,
-        args: Vec<Value>,
-        result: Value,
+        index: Value,
     },
+    IndexSet {
+        object: Value,
+        index: Value,
+        value: Value,
+    },
+
+    // Collection / Structural Operations
+    MakeArray {
+        dst: Value,
+    },
+    ArrayPush {
+        array: Value,
+        value: Value,
+    },
+    MakeMap {
+        dst: Value,
+    },
+    MakeSlice {
+        dst: Value,
+        object: Value,
+        range: Value,
+    },
+    MakeStruct {
+        dst: Value,
+    },
+    MakeStructField {
+        object: Value,
+        field: Value,
+        value: Value,
+    },
+
+    // Iteration Instructions
+    MakeIterator {
+        dst: Value,
+        src: Value,
+    },
+    IterateNext {
+        dst: Value,
+        iter: Value,
+    },
+
+    // Control Flow Instructions
     Return {
         value: Option<Value>,
     },
@@ -224,62 +280,15 @@ pub enum Instruction {
     Br {
         dst: Value,
     },
-    /// Create an iterator from an object.
-    /// The iterator will be stored in `result`.
-    MakeIterator {
-        dst: Value,
-        src: Value,
-    },
-    /// Check if the iterator has another item.
-    IteratorHasNext {
-        dst: Value,
-        iter: Value,
-    },
-    /// Get the next value from an iterator.
-    /// The next value will be stored in `next`.
-    IterateNext {
-        dst: Value,
-        iter: Value,
-    },
-    /// Create a range iterator.
+    Halt,
+
+    // Range Instructions
     MakeRange {
         op: Opcode,
         begin: Option<Value>,
         end: Option<Value>,
         result: Value,
     },
-    /// Create an array.
-    MakeArray {
-        dst: Value,
-    },
-    /// Push a value to an array.
-    ArrayPush {
-        array: Value,
-        value: Value,
-    },
-    /// Create a map.
-    MakeMap {
-        dst: Value,
-    },
-    /// Get a value from an indexable object.
-    IndexGet {
-        dst: Value,
-        object: Value,
-        index: Value,
-    },
-    /// Set a value to an indexable object.
-    IndexSet {
-        object: Value,
-        index: Value,
-        value: Value,
-    },
-    /// Create a slice.
-    MakeSlice {
-        dst: Value,
-        object: Value,
-        range: Value,
-    },
-    Halt,
 }
 
 impl Instruction {
@@ -368,7 +377,6 @@ impl Instruction {
                 dst: result,
             } => (vec![*result], vec![*iter]),
             Instruction::IterateNext { iter, dst: next } => (vec![*next], vec![*iter]),
-            Instruction::IteratorHasNext { iter, dst: result } => (vec![*result], vec![*iter]),
             Instruction::MakeRange {
                 begin, end, result, ..
             } => match (begin, end) {
@@ -387,6 +395,12 @@ impl Instruction {
                 value,
             } => (vec![], vec![*object, *index, *value]),
             Instruction::MakeSlice { dst, object, range } => (vec![*dst], vec![*object, *range]),
+            Instruction::MakeStruct { dst } => (vec![*dst], vec![]),
+            Instruction::MakeStructField {
+                object,
+                field,
+                value,
+            } => (vec![], vec![*object, *field, *value]),
             Instruction::Halt => (vec![], vec![]),
         }
     }
@@ -433,7 +447,7 @@ impl std::fmt::Display for Instruction {
                 args,
                 result: dst,
             } => {
-                write!(f, "{dst} = call_ex {callable}")?;
+                write!(f, "{dst} = call_ex {callable} ")?;
                 for arg in args {
                     write!(f, ", {arg}")?;
                 }
@@ -496,9 +510,6 @@ impl std::fmt::Display for Instruction {
             Instruction::MakeIterator { src, dst } => {
                 write!(f, "{dst} = make_iterator {src}")
             }
-            Instruction::IteratorHasNext { iter, dst } => {
-                write!(f, "{dst} = iterator_has_next {iter}")
-            }
             Instruction::IterateNext { iter, dst } => {
                 write!(f, "{dst} = iterate_next {iter}")
             }
@@ -518,22 +529,6 @@ impl std::fmt::Display for Instruction {
                 }
                 Ok(())
             }
-            // Instruction::MakeRangeInclusive {
-            //     op,
-            //     begin,
-            //     end,
-            //     result,
-            // } => {
-            //     write!(f, "{result} = make_range {op} ")?;
-            //     if let Some(begin) = begin {
-            //         write!(f, "{}", begin)?;
-            //     }
-            //     write!(f, "..=",)?;
-            //     if let Some(end) = end {
-            //         write!(f, " {}", end)?;
-            //     }
-            //     Ok(())
-            // }
             Instruction::MakeArray { dst: array } => {
                 write!(f, "{array} = make_array")?;
                 Ok(())
@@ -556,6 +551,16 @@ impl std::fmt::Display for Instruction {
             }
             Instruction::MakeSlice { dst, object, range } => {
                 write!(f, "{dst} = make_slice {object}[{range}]")
+            }
+            Instruction::MakeStruct { dst } => {
+                write!(f, "{dst} = make_struct")
+            }
+            Instruction::MakeStructField {
+                object,
+                field,
+                value,
+            } => {
+                write!(f, "{object}.{field} = {value}")
             }
             Instruction::Halt => write!(f, "halt"),
         }
@@ -804,7 +809,7 @@ impl Block {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuncParam {
     pub name: Name,
 }
@@ -815,7 +820,7 @@ impl FuncParam {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FuncSignature {
     pub name: Name,
     pub params: Vec<FuncParam>,
@@ -886,6 +891,11 @@ impl IrUnit {
     }
 
     pub fn declare_function(&mut self, signature: FuncSignature) -> FunctionId {
+        // maybe exists
+        if let Some(id) = self.functions.iter().position(|f| f.signature == signature) {
+            return FunctionId::new(id as u32);
+        }
+
         let id = FunctionId::new(self.functions.len() as u32);
         self.functions.push(IrFunction::new(id, signature));
         id

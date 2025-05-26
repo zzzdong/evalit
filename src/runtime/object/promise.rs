@@ -5,10 +5,10 @@ use futures::FutureExt;
 use crate::{Object, Value};
 
 /// Promise
-pub struct Promise(pub(crate) Pin<Box<dyn Future<Output = Value> + Send + 'static>>);
+pub struct Promise(pub(crate) Pin<Box<dyn Future<Output = Value> + Send + Sync + 'static>>);
 
 impl Promise {
-    pub fn new(fut: impl Future<Output = Value> + Send + 'static) -> Self {
+    pub fn new(fut: impl Future<Output = Value> + Send + Sync + 'static) -> Self {
         Self(Box::pin(fut))
     }
 }

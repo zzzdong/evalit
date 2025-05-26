@@ -1,14 +1,15 @@
 use std::any::type_name_of_val;
 
-use object::OperateKind;
-
 mod environment;
 mod object;
 mod value;
 mod vm;
 
 use crate::bytecode::{Operand, Register};
-pub use environment::Environment;
+
+use object::OperateKind;
+
+pub use environment::{EnvVariable, Environment};
 #[cfg(feature = "async")]
 pub use object::Promise;
 pub use object::{Callable, Enumerator, NativeFunction, Null, Object, Range};
@@ -54,6 +55,22 @@ pub enum RuntimeError {
     },
     InvalidOperand {
         operand: Operand,
+    },
+    MissingMethod {
+        object: String,
+        method: String,
+    },
+    MissingProperty {
+        object: String,
+        property: String,
+    },
+    MissingPropertyGetter {
+        object: String,
+        property: String,
+    },
+    MissingPropertySetter {
+        object: String,
+        property: String,
     },
 }
 
@@ -109,6 +126,34 @@ impl RuntimeError {
     pub fn invalid_operand(operand: Operand) -> Self {
         RuntimeError::InvalidOperand { operand }
     }
+
+    pub fn missing_method<T>(method: impl ToString) -> Self {
+        RuntimeError::MissingMethod {
+            object: std::any::type_name::<T>().to_string(),
+            method: method.to_string(),
+        }
+    }
+
+    pub fn missing_property<T>(property: impl ToString) -> Self {
+        RuntimeError::MissingProperty {
+            object: std::any::type_name::<T>().to_string(),
+            property: property.to_string(),
+        }
+    }
+
+    pub fn missing_property_getter<T>(property: impl ToString) -> Self {
+        RuntimeError::MissingPropertyGetter {
+            object: std::any::type_name::<T>().to_string(),
+            property: property.to_string(),
+        }
+    }
+
+    pub fn missing_property_setter<T>(property: impl ToString) -> Self {
+        RuntimeError::MissingPropertySetter {
+            object: std::any::type_name::<T>().to_string(),
+            property: property.to_string(),
+        }
+    }
 }
 
 impl std::fmt::Display for RuntimeError {
@@ -153,6 +198,18 @@ impl std::fmt::Display for RuntimeError {
             RuntimeError::Internal { message } => write!(f, "Internal error: {message}"),
             RuntimeError::InvalidOperand { operand } => {
                 write!(f, "Invalid operand: {operand:?}")
+            }
+            RuntimeError::MissingMethod { object, method } => {
+                write!(f, "Missing method: {method} for {object}")
+            }
+            RuntimeError::MissingProperty { object, property } => {
+                write!(f, "Missing property: {property} for {object}")
+            }
+            RuntimeError::MissingPropertyGetter { object, property } => {
+                write!(f, "Missing property getter: {property} for {object}")
+            }
+            RuntimeError::MissingPropertySetter { object, property } => {
+                write!(f, "Missing property setter: {property} for {object}")
             }
         }
     }

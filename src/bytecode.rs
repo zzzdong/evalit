@@ -26,56 +26,38 @@ impl Module {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct Bytecode {
     pub opcode: Opcode,
-    pub operands: [Operand; 4],
+    pub operands: [Operand; 3],
 }
 
 impl Bytecode {
     pub fn empty(opcode: Opcode) -> Self {
         Self {
             opcode,
-            operands: [Operand::Immd(0); 4],
+            operands: [Operand::Immd(0); 3],
         }
     }
 
     pub fn single(opcode: Opcode, operand: Operand) -> Self {
         Self {
             opcode,
-            operands: [
-                operand,
-                Operand::Immd(0),
-                Operand::Immd(0),
-                Operand::Immd(0),
-            ],
+            operands: [operand, Operand::Immd(0), Operand::Immd(0)],
         }
     }
 
     pub fn double(opcode: Opcode, dst: Operand, src: Operand) -> Self {
         Self {
             opcode,
-            operands: [dst, src, Operand::Immd(0), Operand::Immd(0)],
+            operands: [dst, src, Operand::Immd(0)],
         }
     }
 
     pub fn triple(opcode: Opcode, dst: Operand, src1: Operand, src2: Operand) -> Self {
         Self {
             opcode,
-            operands: [dst, src1, src2, Operand::Immd(0)],
-        }
-    }
-
-    pub fn quadruple(
-        opcode: Opcode,
-        dst: Operand,
-        src1: Operand,
-        src2: Operand,
-        src3: Operand,
-    ) -> Self {
-        Self {
-            opcode,
-            operands: [dst, src1, src2, src3],
+            operands: [dst, src1, src2],
         }
     }
 }
@@ -141,8 +123,8 @@ pub enum Opcode {
     Mulx,
     /// divx dst, src1, src2 (object division)
     Divx,
-    /// modx dst, src1, src2 (object modulo)
-    Modx,
+    /// remx dst, src1, src2 (object remainder)
+    Remx,
     /// and dst, src1, src2
     And,
     /// or dst, src1, src2
@@ -179,8 +161,6 @@ pub enum Opcode {
     RangeToInclusive,
     /// make_iter dst, src
     MakeIter,
-    /// iter_has_next dst, src
-    IterHasNext,
     /// iter_next dst, src
     IterNext,
     /// make_array dst
@@ -195,12 +175,16 @@ pub enum Opcode {
     IndexSet,
     /// make_slice dst, object, range
     MakeSlice,
+    /// make_struct dst
+    MakeStruct,
+    /// make_struct_field obj, field, value
+    MakeStructField,
     /// prop_get dst, obj, prop
     PropGet,
     /// prop_set obj, prop, value
     PropSet,
-    /// prop_call dst, obj, prop
-    PropCall,
+    /// call_method dst, obj, method
+    CallMethod,
     /// await dst, promise
     Await,
 }
@@ -231,7 +215,7 @@ impl fmt::Display for Opcode {
             Opcode::Subx => write!(f, "subx"),
             Opcode::Mulx => write!(f, "mulx"),
             Opcode::Divx => write!(f, "divx"),
-            Opcode::Modx => write!(f, "modx"),
+            Opcode::Remx => write!(f, "remx"),
             Opcode::And => write!(f, "and"),
             Opcode::Or => write!(f, "or"),
             Opcode::Less => write!(f, "lt"),
@@ -247,7 +231,6 @@ impl fmt::Display for Opcode {
             Opcode::RangeTo => write!(f, "range_to"),
             Opcode::RangeToInclusive => write!(f, "range_to_inclusive"),
             Opcode::MakeIter => write!(f, "make_iter"),
-            Opcode::IterHasNext => write!(f, "iter_has_next"),
             Opcode::IterNext => write!(f, "iter_next"),
             Opcode::MakeArray => write!(f, "make_array"),
             Opcode::ArrayPush => write!(f, "array_push"),
@@ -255,9 +238,11 @@ impl fmt::Display for Opcode {
             Opcode::IndexGet => write!(f, "index_get"),
             Opcode::IndexSet => write!(f, "index_set"),
             Opcode::MakeSlice => write!(f, "make_slice"),
+            Opcode::MakeStruct => write!(f, "make_struct"),
+            Opcode::MakeStructField => write!(f, "make_struct_field"),
             Opcode::PropGet => write!(f, "prop_get"),
             Opcode::PropSet => write!(f, "prop_set"),
-            Opcode::PropCall => write!(f, "prop_call"),
+            Opcode::CallMethod => write!(f, "call_method"),
             Opcode::Await => write!(f, "await"),
         }
     }
@@ -338,13 +323,11 @@ pub enum Register {
     R14,
     R15,
     /// Stack pointer
-    RSP,
-    ///
-    RBP,
-    /// Program counter
-    PC,
+    Rsp,
+    /// Base pointer
+    Rbp,
     /// Return value
-    RV,
+    Rv,
 }
 
 impl Register {
@@ -377,7 +360,7 @@ impl Register {
         [Register::R0, Register::R1, Register::R2, Register::R3]
     }
 
-    pub fn all() -> [Register; 20] {
+    pub fn all() -> [Register; 19] {
         [
             Register::R0,
             Register::R1,
@@ -395,10 +378,9 @@ impl Register {
             Register::R13,
             Register::R14,
             Register::R15,
-            Register::RSP,
-            Register::RBP,
-            Register::PC,
-            Register::RV,
+            Register::Rsp,
+            Register::Rbp,
+            Register::Rv,
         ]
     }
 }
@@ -422,10 +404,9 @@ impl fmt::Display for Register {
             Register::R13 => write!(f, "r13"),
             Register::R14 => write!(f, "r14"),
             Register::R15 => write!(f, "r15"),
-            Register::RSP => write!(f, "rsp"),
-            Register::RBP => write!(f, "rbp"),
-            Register::PC => write!(f, "pc"),
-            Register::RV => write!(f, "rv"),
+            Register::Rsp => write!(f, "rsp"),
+            Register::Rbp => write!(f, "rbp"),
+            Register::Rv => write!(f, "rv"),
         }
     }
 }

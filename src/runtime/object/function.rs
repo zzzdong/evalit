@@ -24,11 +24,11 @@ impl Object for UserFunction {
 /// NativeFunction
 pub struct NativeFunction {
     pub name: String,
-    pub func: Box<dyn Function>,
+    pub func: Box<dyn Function + Send + Sync + 'static>,
 }
 
 impl NativeFunction {
-    pub fn new(name: impl ToString, func: Box<dyn Function>) -> Self {
+    pub fn new(name: impl ToString, func: Box<dyn Function + Send + Sync + 'static>) -> Self {
         Self {
             name: name.to_string(),
             func,
@@ -96,11 +96,11 @@ impl<T: Object> IntoRet for Result<T, RuntimeError> {
     }
 }
 
-impl<T: Object> IntoRet for Result<Option<T>, RuntimeError> {
-    fn into_ret(self) -> Result<Option<Value>, RuntimeError> {
-        self.map(|v| v.map(Value::new))
-    }
-}
+// impl<T: Object> IntoRet for Result<Option<T>, RuntimeError> {
+//     fn into_ret(self) -> Result<Option<Value>, RuntimeError> {
+//         self.map(|v| v.map(Value::new))
+//     }
+// }
 
 pub trait FromValue: Sized {
     fn from_value(value: &ValueRef) -> Result<Self, RuntimeError>;
@@ -111,7 +111,8 @@ where
     T: Object + Clone,
 {
     fn from_value(value: &ValueRef) -> Result<T, RuntimeError> {
-        let value = value
+        let v = value.value();
+        let value = v
             .downcast_ref::<T>()
             .ok_or(RuntimeError::invalid_type::<T>(value))?;
 

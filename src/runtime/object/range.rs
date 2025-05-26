@@ -15,12 +15,12 @@ pub enum Range {
 
 impl Range {
     pub fn new(begin: ValueRef, end: ValueRef) -> Result<Self, RuntimeError> {
-        let begin = match begin.clone().downcast_ref::<i64>() {
+        let begin = match begin.clone().value().downcast_ref::<i64>() {
             Some(begin) => *begin,
             None => return Err(RuntimeError::invalid_type::<i64>(begin)),
         };
 
-        let end = match end.clone().downcast_ref::<i64>() {
+        let end = match end.clone().value().downcast_ref::<i64>() {
             Some(end) => *end,
             None => return Err(RuntimeError::invalid_type::<i64>(end)),
         };
@@ -29,12 +29,12 @@ impl Range {
     }
 
     pub fn inclusive(begin: ValueRef, end: ValueRef) -> Result<Self, RuntimeError> {
-        let begin = match begin.clone().downcast_ref::<i64>() {
+        let begin = match begin.clone().value().downcast_ref::<i64>() {
             Some(begin) => *begin,
             None => return Err(RuntimeError::invalid_type::<i64>(begin)),
         };
 
-        let end = match end.clone().downcast_ref::<i64>() {
+        let end = match end.clone().value().downcast_ref::<i64>() {
             Some(end) => *end,
             None => return Err(RuntimeError::invalid_type::<i64>(end)),
         };
@@ -47,7 +47,7 @@ impl Range {
     }
 
     pub fn range_from(begin: ValueRef) -> Result<Self, RuntimeError> {
-        let begin = match begin.clone().downcast_ref::<i64>() {
+        let begin = match begin.clone().value().downcast_ref::<i64>() {
             Some(begin) => *begin,
             None => return Err(RuntimeError::invalid_type::<i64>(begin)),
         };
@@ -56,7 +56,7 @@ impl Range {
     }
 
     pub fn range_to(end: ValueRef) -> Result<Self, RuntimeError> {
-        let end = match end.clone().downcast_ref::<i64>() {
+        let end = match end.clone().value().downcast_ref::<i64>() {
             Some(end) => *end,
             None => return Err(RuntimeError::invalid_type::<i64>(end)),
         };
@@ -64,7 +64,7 @@ impl Range {
     }
 
     pub fn range_to_inclusive(end: ValueRef) -> Result<Self, RuntimeError> {
-        let end = match end.clone().downcast_ref::<i64>() {
+        let end = match end.clone().value().downcast_ref::<i64>() {
             Some(end) => *end,
             None => return Err(RuntimeError::invalid_type::<i64>(end)),
         };
@@ -113,6 +113,26 @@ impl Range {
 }
 
 impl Object for Range {
+    #[cfg(feature = "async")]
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
+        match self {
+            Range::Normal { begin, end } => {
+                Ok(Box::new((*begin..*end).map(|i| Value::new(i).into())))
+            }
+            Range::Inclusive { begin, end } => {
+                Ok(Box::new((*begin..=*end).map(|i| Value::new(i).into())))
+            }
+            Range::From { begin } => Ok(Box::new((*begin..).map(|i| Value::new(i).into()))),
+            _ => Err(RuntimeError::invalid_operation(
+                super::OperateKind::MakeIterator,
+                format!("range {self:?} is not iterable"),
+            )),
+        }
+    }
+
+    #[cfg(not(feature = "async"))]
     fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
         match self {
             Range::Normal { begin, end } => {
@@ -126,6 +146,32 @@ impl Object for Range {
                 super::OperateKind::MakeIterator,
                 format!("range {self:?} is not iterable"),
             )),
+        }
+    }
+
+    fn call_method(
+        &mut self,
+        method: &str,
+        args: &[ValueRef],
+    ) -> Result<Option<ValueRef>, RuntimeError> {
+        match method {
+            "len" => {
+                if args.is_empty() {
+                    let len = match self {
+                        Range::Normal { begin, end } => *end - *begin,
+                        Range::Inclusive { begin, end } => *end - *begin + 1,
+                        Range::From { begin } => i64::MAX - *begin,
+                        Range::To { end } => *end,
+                        Range::ToInclusive { end } => *end + 1,
+                        Range::Full => i64::MAX,
+                    };
+
+                    return Ok(Some(Value::new(len).into()));
+                }
+
+                Err(RuntimeError::invalid_argument_count(0, args.len()))
+            }
+            _ => Err(RuntimeError::missing_method::<Self>(method)),
         }
     }
 }

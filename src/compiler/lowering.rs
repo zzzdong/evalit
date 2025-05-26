@@ -1,44 +1,15 @@
+use std::collections::HashMap;
 use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
+use super::CompileError;
+use super::ast::syntax::*;
+use super::ir::{builder::*, instruction::*};
+use super::typing::TypeContext;
 use crate::{
-    Environment, Error,
-    ast::*,
-    bytecode::{Opcode, Primitive},
-    ir::{builder::*, instruction::*},
+    Environment,
+    bytecode::{FunctionId, Opcode, Primitive},
+    runtime::EnvVariable,
 };
-
-pub fn lowering(ast: Program, env: &Environment) -> Result<IrUnit, Error> {
-    let mut unit = IrUnit::new();
-
-    let builder: &mut dyn InstBuilder = &mut IrBuilder::new(&mut unit);
-
-    let entry = builder.create_block("__entry".into());
-    builder.switch_to_block(entry);
-
-    let mut ast_lower = ASTLower::new(builder, SymbolTable::new(), env);
-
-    let mut stmts = Vec::new();
-
-    // split program into statements and items
-    for stmt in ast.stmts {
-        match stmt.node {
-            Statement::Item(ItemStatement::Fn(func)) => {
-                ast_lower.lower_function_item(func);
-            }
-            Statement::Item(_) => {
-                unimplemented!("unsupported item statement")
-            }
-            Statement::Empty => {}
-            _ => {
-                stmts.push(stmt);
-            }
-        }
-    }
-
-    ast_lower.lower_statements(stmts);
-
-    Ok(unit)
-}
 
 struct LoopContext {
     pub(crate) break_point: BlockId,
@@ -59,6 +30,7 @@ pub struct ASTLower<'a> {
     env: &'a Environment,
     symbols: SymbolTable,
     loop_contexts: Vec<LoopContext>,
+    type_cx: &'a TypeContext,
 }
 
 impl<'a> ASTLower<'a> {
@@ -66,26 +38,56 @@ impl<'a> ASTLower<'a> {
         builder: &'a mut dyn InstBuilder,
         symbols: SymbolTable,
         env: &'a Environment,
+        type_cx: &'a TypeContext,
     ) -> Self {
         Self {
             builder,
             env,
             symbols,
             loop_contexts: Vec::new(),
+            type_cx,
         }
     }
 
-    fn lower_statements(&mut self, stmts: Vec<StatementNode>) {
+    pub fn lower_program(&mut self, prog: Program) -> Result<IrUnit, CompileError> {
+        let mut unit = IrUnit::new();
+
+        let builder: &mut dyn InstBuilder = &mut IrBuilder::new(&mut unit);
+
+        let entry = builder.create_block("__entry".into());
+        builder.switch_to_block(entry);
+
+        // declare functions
+        for decl in self.type_cx.function_decls() {
+            if let Declaration::Function(func) = decl {
+                self.declare_function(func);
+            }
+        }
+
         let entry = self.create_block("main");
         self.builder.switch_to_block(entry);
         self.builder.set_entry(entry);
 
-        for stmt in stmts {
-            self.lower_statement(stmt);
+        // split program into statements and items
+        for stmt in prog.stmts {
+            match stmt.node {
+                Statement::Item(ItemStatement::Fn(func)) => {
+                    self.lower_function_item(func);
+                }
+                Statement::Item(_) => {
+                    // unimplemented!("unsupported item statement")
+                }
+                Statement::Empty => {}
+                _ => {
+                    self.lower_statement(stmt);
+                }
+            }
         }
 
         // FIXME: This is a hack to make block not empty.
         self.builder.make_halt();
+
+        Ok(unit)
     }
 
     fn lower_statement(&mut self, statement: StatementNode) {
@@ -109,6 +111,9 @@ impl<'a> ASTLower<'a> {
             Statement::Loop(loop_stmt) => {
                 self.lower_loop_stmt(loop_stmt);
             }
+            Statement::While(while_stmt) => {
+                self.lower_while_stmt(while_stmt);
+            }
             Statement::For(for_stmt) => {
                 self.lower_for_stmt(for_stmt);
             }
@@ -118,8 +123,10 @@ impl<'a> ASTLower<'a> {
             Statement::Continue => {
                 self.lower_continue_stmt();
             }
-
-            _ => unimplemented!("{:?}", statement),
+            Statement::Block(block_stmt) => {
+                self.lower_block(block_stmt);
+            }
+            Statement::Empty => {} // _ => unimplemented!("{:?}", statement),
         }
     }
 
@@ -133,7 +140,7 @@ impl<'a> ASTLower<'a> {
             self.builder.assign(dst, value);
         }
 
-        self.symbols.declare(&name, Variable::new(dst));
+        self.symbols.define(&name, Variable::new(dst));
     }
 
     fn lower_item_stmt(&mut self, item: ItemStatement) {
@@ -180,7 +187,7 @@ impl<'a> ASTLower<'a> {
             Pattern::Identifier(ident) => {
                 let dst = self.builder.alloc();
                 self.builder.assign(dst, value);
-                self.symbols.declare(&ident, Variable::new(dst));
+                self.symbols.define(&ident, Variable::new(dst));
             }
 
             Pattern::Tuple(pats) => {
@@ -220,14 +227,15 @@ impl<'a> ASTLower<'a> {
 
         // loop header, check if iterator has next
         self.builder.switch_to_block(loop_header);
-        let has_next = self.builder.iterator_has_next(iterable);
+        let next = self.builder.iterate_next(iterable);
+        let has_next = self.builder.call_property(next, "is_some", vec![]);
         self.builder.br_if(has_next, loop_body, after_blk);
 
         // loop body, get next value
         self.builder.switch_to_block(loop_body);
         let new_symbols = self.symbols.new_scope();
         let old_symbols = std::mem::replace(&mut self.symbols, new_symbols);
-        let next = self.builder.iterate_next(iterable);
+        let next = self.builder.call_property(next, "unwrap", vec![]);
         self.lower_pattern(pat, next);
 
         self.lower_block(body);
@@ -256,12 +264,39 @@ impl<'a> ASTLower<'a> {
 
         self.lower_block(body);
 
-        self.symbols = old_symbols;
-
         self.builder.br(loop_body);
 
         // done loop
         self.level_loop_context();
+        self.symbols = old_symbols;
+        self.builder.switch_to_block(after_blk);
+    }
+
+    fn lower_while_stmt(&mut self, while_stmt: WhileStatement) {
+        let WhileStatement { condition, body } = while_stmt;
+
+        let cond_blk = self.create_block("while_condition");
+        let body_blk = self.create_block("while_body");
+        let after_blk = self.create_block(None);
+
+        self.enter_loop_context(after_blk, body_blk);
+
+        self.builder.br(cond_blk);
+        self.builder.switch_to_block(cond_blk);
+
+        let cond = self.lower_expression(condition);
+        self.builder.br_if(cond, body_blk, after_blk);
+
+        self.builder.switch_to_block(body_blk);
+        let new_symbols = self.symbols.new_scope();
+        let old_symbols = std::mem::replace(&mut self.symbols, new_symbols);
+
+        self.lower_block(body);
+
+        self.builder.br(cond_blk);
+
+        self.level_loop_context();
+        self.symbols = old_symbols;
         self.builder.switch_to_block(after_blk);
     }
 
@@ -288,7 +323,7 @@ impl<'a> ASTLower<'a> {
         } = fn_item;
 
         let value = self.lower_function(Some(name.to_string()), params, body);
-        self.symbols.declare(name, Variable::new(value));
+        self.symbols.define(name, Variable::new(value));
         value
     }
 
@@ -315,7 +350,7 @@ impl<'a> ASTLower<'a> {
 
         let mut func_builder = FunctionBuilder::new(self.builder.module_mut(), &mut func);
 
-        let mut func_lower = ASTLower::new(&mut func_builder, symbols, self.env);
+        let mut func_lower = ASTLower::new(&mut func_builder, symbols, self.env, self.type_cx);
 
         let entry = func_lower.create_block(name);
         func_lower.builder.set_entry(entry);
@@ -326,7 +361,7 @@ impl<'a> ASTLower<'a> {
 
             func_lower
                 .symbols
-                .declare(param.name.as_str(), Variable::new(arg));
+                .define(param.name.as_str(), Variable::new(arg));
         }
 
         func_lower.lower_block(body);
@@ -347,41 +382,121 @@ impl<'a> ASTLower<'a> {
             Expression::Identifier(identifier) => self.lower_identifier(identifier),
             Expression::Prefix(expr) => self.lower_unary(expr),
             Expression::Binary(expr) => self.lower_binary(expr),
-            Expression::Member(member) => self.lower_get_property(member),
             Expression::Call(call) => self.lower_call(call),
             Expression::Assign(assign) => self.lower_assign(assign),
             Expression::Closure(closure) => self.lower_closure(closure),
             Expression::Array(array) => self.lower_array(array),
-            Expression::Index(index) => self.lower_index(index),
             Expression::Map(map) => self.lower_map(map),
             Expression::Slice(slice) => self.lower_slice(slice),
             Expression::Await(expr) => self.lower_await(*expr),
+            Expression::Environment(env) => self.lower_environment(env),
+            Expression::IndexGet(expr) => self.lower_index_get(expr),
+            Expression::IndexSet(expr) => self.lower_index_set(expr),
+            Expression::PropertyGet(expr) => self.lower_get_property(expr),
+            Expression::PropertySet(expr) => self.lower_set_property(expr),
+            Expression::CallMethod(expr) => self.lower_call_method(expr),
+            Expression::StructExpr(expr) => self.lower_struct_expr(expr),
             _ => unimplemented!("{:?}", expr),
         }
     }
 
-    fn lower_index_set(&mut self, expr: IndexExpression, value: Value) {
-        let IndexExpression { object, index } = expr;
+    fn lower_environment(&mut self, env: EnvironmentExpression) -> Value {
+        let EnvironmentExpression(env) = env;
+
+        self.builder.load_external_variable(env)
+    }
+
+    fn lower_index_get(&mut self, expr: IndexGetExpression) -> Value {
+        let IndexGetExpression { object, index } = expr;
 
         let object = self.lower_expression(*object);
         let index = self.lower_expression(*index);
-        self.builder.index_set(object, index, value);
+        self.builder.index_get(object, index)
     }
 
-    fn lower_get_property(&mut self, expr: MemberExpression) -> Value {
-        let MemberExpression { object, property } = expr;
+    fn lower_index_set(&mut self, expr: IndexSetExpression) -> Value {
+        let IndexSetExpression {
+            object,
+            index,
+            value,
+        } = expr;
+
+        let value = self.lower_expression(*value);
+        let object = self.lower_expression(*object);
+        let index = self.lower_expression(*index);
+        self.builder.index_set(object, index, value);
+
+        value
+    }
+
+    fn lower_get_property(&mut self, expr: PropertyGetExpression) -> Value {
+        let PropertyGetExpression { object, property } = expr;
 
         let object = self.lower_expression(*object);
 
         self.builder.get_property(object, &property)
     }
 
-    fn lower_set_property(&mut self, expr: MemberExpression, value: Value) {
-        let MemberExpression { object, property } = expr;
+    fn lower_set_property(&mut self, expr: PropertySetExpression) -> Value {
+        let PropertySetExpression {
+            object,
+            property,
+            value,
+        } = expr;
+
+        let value = self.lower_expression(*value);
 
         let object = self.lower_expression(*object);
 
-        self.builder.set_property(object, &property, value)
+        self.builder.set_property(object, &property, value);
+
+        value
+    }
+
+    fn lower_struct_expr(&mut self, expr: StructExpression) -> Value {
+        let StructExpression { name, fields } = expr;
+
+        let mut field_map = fields
+            .into_iter()
+            .map(|StructExprField { name, value }| (name, self.lower_expression(value)))
+            .collect::<HashMap<_, _>>();
+
+        let decl = self.type_cx.get_type_decl(&name).expect("struct not found");
+        if let Declaration::Struct(StructDeclaration {
+            name,
+            fields: decl_fields,
+        }) = decl
+        {
+            for name in decl_fields.keys() {
+                if !field_map.contains_key(name) {
+                    field_map.insert(name.clone(), Value::Primitive(Primitive::Null));
+                }
+            }
+        }
+
+        let field_map = field_map
+            .into_iter()
+            .map(|(name, value)| (self.builder.make_constant(name.into()), value))
+            .collect();
+
+        self.builder.make_struct(field_map)
+    }
+
+    fn lower_call_method(&mut self, expr: CallMethodExpression) -> Value {
+        let CallMethodExpression {
+            object,
+            method,
+            args,
+        } = expr;
+
+        let args: Vec<Value> = args
+            .into_iter()
+            .map(|arg| self.lower_expression(arg))
+            .collect();
+
+        let object = self.lower_expression(*object);
+
+        self.builder.call_property(object, &method, args)
     }
 
     fn lower_call(&mut self, expr: CallExpression) -> Value {
@@ -393,25 +508,18 @@ impl<'a> ASTLower<'a> {
             .collect();
 
         match func.node {
-            Expression::Member(member) => {
-                let MemberExpression { object, property } = member;
-
-                let object = self.lower_expression(*object);
-
-                self.builder.call_property(object, &property, args)
-            }
             Expression::Identifier(IdentifierExpression(ref ident)) => {
                 match self.builder.module().find_function(ident) {
                     Some(func) => self.builder.call_function(func.id, args),
                     None => match self.symbols.get(ident) {
                         Some(var) => self.builder.make_call(var.0, args),
                         None => match self.env.get(ident) {
-                            Some(_) => {
+                            Some(EnvVariable::Function(_)) => {
                                 let callable =
                                     self.builder.load_external_variable(ident.to_string());
                                 self.builder.make_call_native(callable, args)
                             }
-                            None => {
+                            _ => {
                                 panic!("unknown identifier: {ident}");
                             }
                         },
@@ -429,21 +537,9 @@ impl<'a> ASTLower<'a> {
 
         let value = self.lower_expression(*value);
 
-        match object.node {
-            Expression::Member(member) => {
-                self.lower_set_property(member, value);
-                value
-            }
-            Expression::Index(expr) => {
-                self.lower_index_set(expr, value);
-                value
-            }
-            _ => {
-                let object = self.lower_expression(*object);
-                self.builder.assign(object, value);
-                value
-            }
-        }
+        let object = self.lower_expression(*object);
+        self.builder.assign(object, value);
+        value
     }
 
     fn lower_closure(&mut self, expr: ClosureExpression) -> Value {
@@ -485,15 +581,6 @@ impl<'a> ASTLower<'a> {
         let promise = self.lower_expression(expr);
 
         self.builder.await_promise(promise)
-    }
-
-    fn lower_index(&mut self, expr: IndexExpression) -> Value {
-        let IndexExpression { object, index } = expr;
-
-        let object = self.lower_expression(*object);
-
-        let index = self.lower_expression(*index);
-        self.builder.index_get(object, index)
     }
 
     fn lower_range(&mut self, expr: RangeExpression) -> Value {
@@ -568,7 +655,7 @@ impl<'a> ASTLower<'a> {
             BinOp::Sub => self.builder.binop(Opcode::Subx, lhs, rhs),
             BinOp::Mul => self.builder.binop(Opcode::Mulx, lhs, rhs),
             BinOp::Div => self.builder.binop(Opcode::Divx, lhs, rhs),
-            BinOp::Mod => self.builder.binop(Opcode::Modx, lhs, rhs),
+            BinOp::Rem => self.builder.binop(Opcode::Remx, lhs, rhs),
 
             BinOp::Equal => self.builder.binop(Opcode::Equal, lhs, rhs),
             BinOp::NotEqual => self.builder.binop(Opcode::NotEqual, lhs, rhs),
@@ -588,6 +675,19 @@ impl<'a> ASTLower<'a> {
 
             _ => unimplemented!("{:?}", op),
         }
+    }
+
+    fn declare_function(&mut self, func: &FunctionDeclaration) -> FunctionId {
+        let FunctionDeclaration { name, params, .. } = func;
+
+        let func_sig = FuncSignature::new(
+            name.clone(),
+            params
+                .iter()
+                .map(|(name, _ty)| FuncParam::new(name.clone()))
+                .collect(),
+        );
+        self.builder.module_mut().declare_function(func_sig.clone())
     }
 
     fn create_block(&mut self, label: impl Into<Name>) -> BlockId {
@@ -627,7 +727,7 @@ pub struct SymbolNode {
 pub struct SymbolTable(Rc<RefCell<SymbolNode>>);
 
 impl SymbolTable {
-    fn new() -> Self {
+    pub fn new() -> Self {
         SymbolTable(Rc::new(RefCell::new(SymbolNode {
             parent: None,
             symbols: BTreeMap::new(),
@@ -644,7 +744,7 @@ impl SymbolTable {
         None
     }
 
-    fn declare(&mut self, name: impl Into<String>, value: Variable) {
+    fn define(&mut self, name: impl Into<String>, value: Variable) {
         self.0.borrow_mut().symbols.insert(name.into(), value);
     }
 

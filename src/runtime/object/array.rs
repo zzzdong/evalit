@@ -1,6 +1,6 @@
 use crate::{Object, RuntimeError, Value, ValueRef};
 
-use super::Range;
+use super::{Enumerator, Range, metatable::MetaTable};
 
 impl<T: Object + Clone> Object for Vec<T> {
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -28,7 +28,7 @@ impl<T: Object + Clone> Object for Vec<T> {
     fn index_set(&mut self, index: &Value, value: ValueRef) -> Result<(), RuntimeError> {
         if let Some(index) = index.downcast_ref::<i64>() {
             if *index >= 0 && *index < self.len() as i64 {
-                if let Some(value) = value.downcast_ref::<T>() {
+                if let Some(value) = value.value().downcast_ref::<T>() {
                     self[*index as usize] = value.clone();
                     return Ok(());
                 } else {
@@ -47,6 +47,16 @@ impl<T: Object + Clone> Object for Vec<T> {
         ))
     }
 
+    #[cfg(feature = "async")]
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
+        Ok(Box::new(
+            self.clone().into_iter().map(|item| ValueRef::new(item)),
+        ))
+    }
+
+    #[cfg(not(feature = "async"))]
     fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
         Ok(Box::new(
             self.clone().into_iter().map(|item| ValueRef::new(item)),
@@ -54,7 +64,7 @@ impl<T: Object + Clone> Object for Vec<T> {
     }
 
     fn make_slice(&self, range: ValueRef) -> Result<Value, RuntimeError> {
-        if let Some(range) = range.downcast_ref::<Range>() {
+        if let Some(range) = range.value().downcast_ref::<Range>() {
             let (start, end) = range.get_range(self.len())?;
 
             // 创建新的Vec并复制切片内容
@@ -69,13 +79,17 @@ impl<T: Object + Clone> Object for Vec<T> {
         ))
     }
 
-    fn property_call(
+    fn call_method(
         &mut self,
-        member: &str,
+        method: &str,
         args: &[ValueRef],
-    ) -> Result<Option<Value>, RuntimeError> {
-        match member {
-            "len" => Ok(Some(Value::new(self.len() as i64))),
+    ) -> Result<Option<ValueRef>, RuntimeError> {
+        match method {
+            "len" => Ok(Some(ValueRef::new(self.len() as i64))),
+            "clear" => {
+                self.clear();
+                Ok(None)
+            }
             "enumerate" => {
                 let i = self
                     .clone()
@@ -83,9 +97,50 @@ impl<T: Object + Clone> Object for Vec<T> {
                     .enumerate()
                     .map(|(i, item)| (ValueRef::new(i as i64), ValueRef::new(item)))
                     .collect::<Vec<(ValueRef, ValueRef)>>();
-                Ok(Some(Value::new(i)))
+                Ok(Some(ValueRef::new(i)))
             }
-            _ => Ok(None),
+            "push" => {
+                if args.len() == 1 {
+                    return match args[0].value().downcast_ref::<T>() {
+                        Some(item) => {
+                            self.push(item.clone());
+                            Ok(None)
+                        }
+                        None => Err(RuntimeError::invalid_argument::<T>(0, &args[0])),
+                    };
+                }
+                Err(RuntimeError::invalid_argument_count(1, args.len()))
+            }
+            "pop" => {
+                if args.is_empty() {
+                    if let Some(item) = self.pop() {
+                        return Ok(Some(ValueRef::new(item)));
+                    }
+                    return Ok(None);
+                }
+                Err(RuntimeError::invalid_argument_count(0, args.len()))
+            }
+            "remove" => {
+                if args.len() == 1 {
+                    if let Some(index) = args[0].value().downcast_ref::<i64>() {
+                        if *index >= 0 && *index < self.len() as i64 {
+                            let removed = self.remove(*index as usize);
+                            return Ok(Some(ValueRef::new(removed)));
+                        }
+                        return Err(RuntimeError::IndexOutOfBounds {
+                            length: self.len() as i64,
+                            index: *index,
+                        });
+                    }
+                    return Err(RuntimeError::invalid_argument::<i64>(
+                        0,
+                        format!("cannot remove with {:?}", args[0]),
+                    ));
+                }
+
+                Err(RuntimeError::invalid_argument_count(1, args.len()))
+            }
+            _ => Err(RuntimeError::missing_method::<Self>(method)),
         }
     }
 }
@@ -131,12 +186,20 @@ impl Object for Vec<ValueRef> {
         ))
     }
 
+    #[cfg(feature = "async")]
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
+        Ok(Box::new(self.clone().into_iter()))
+    }
+
+    #[cfg(not(feature = "async"))]
     fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
         Ok(Box::new(self.clone().into_iter()))
     }
 
     fn make_slice(&self, range: ValueRef) -> Result<Value, RuntimeError> {
-        if let Some(range) = range.downcast_ref::<Range>() {
+        if let Some(range) = range.value().downcast_ref::<Range>() {
             let (start, end) = range.get_range(self.len())?;
 
             // 创建新的Vec并复制切片内容
@@ -151,23 +214,85 @@ impl Object for Vec<ValueRef> {
         ))
     }
 
-    fn property_call(
+    fn call_method(
         &mut self,
-        member: &str,
+        method: &str,
         args: &[ValueRef],
-    ) -> Result<Option<Value>, RuntimeError> {
-        match member {
-            "len" => Ok(Some(Value::new(self.len() as i64))),
-            "enumerate" => {
-                let i = self
-                    .clone()
-                    .into_iter()
-                    .enumerate()
-                    .map(|(i, item)| (ValueRef::new(i as i64), item))
-                    .collect::<Vec<(ValueRef, ValueRef)>>();
-                Ok(Some(Value::new(i)))
-            }
-            _ => Ok(None),
-        }
+    ) -> Result<Option<ValueRef>, RuntimeError> {
+        ARRAY_METATABLE.call_method(self, method, args)
     }
 }
+
+static ARRAY_METATABLE: std::sync::LazyLock<MetaTable<Vec<ValueRef>>> =
+    std::sync::LazyLock::new(|| {
+        let table = MetaTable::new("array")
+            .with_method("len", |this: &mut Vec<ValueRef>, args| {
+                if args.is_empty() {
+                    return Ok(Some(ValueRef::new(this.len() as i64)));
+                }
+                Err(RuntimeError::invalid_argument_count(0, args.len()))
+            })
+            .with_method("clear", |this: &mut Vec<ValueRef>, args| {
+                if args.is_empty() {
+                    this.clear();
+                    return Ok(None);
+                }
+                Err(RuntimeError::invalid_argument_count(0, args.len()))
+            })
+            .with_method("push", |this: &mut Vec<ValueRef>, args| {
+                if args.len() == 1 {
+                    this.push(args[0].clone());
+                    return Ok(None);
+                }
+                Err(RuntimeError::invalid_argument_count(1, args.len()))
+            })
+            .with_method("pop", |this: &mut Vec<ValueRef>, args| {
+                if args.is_empty() {
+                    if let Some(value) = this.pop() {
+                        return Ok(Some(value));
+                    }
+                    return Ok(None);
+                }
+                Err(RuntimeError::invalid_argument_count(0, args.len()))
+            })
+            .with_method("remove", |this: &mut Vec<ValueRef>, args| {
+                if args.len() == 1 {
+                    if let Some(index) = args[0].value().downcast_ref::<i64>() {
+                        if *index >= 0 && *index < this.len() as i64 {
+                            let removed = this.remove(*index as usize);
+                            return Ok(Some(removed));
+                        }
+                        return Err(RuntimeError::IndexOutOfBounds {
+                            length: this.len() as i64,
+                            index: *index,
+                        });
+                    }
+                    return Err(RuntimeError::invalid_argument::<i64>(
+                        0,
+                        format!("cannot remove with {:?}", args[0]),
+                    ));
+                }
+
+                Err(RuntimeError::invalid_argument_count(1, args.len()))
+            });
+
+        #[cfg(feature = "async")]
+        let table = table.with_method("iter", |this: &mut Vec<ValueRef>, args| {
+            if args.is_empty() {
+                let iter = this.clone().into_iter();
+                return Ok(Some(ValueRef::new(Enumerator::new(Box::new(iter)))));
+            }
+            Err(RuntimeError::invalid_argument_count(0, args.len()))
+        });
+
+        #[cfg(not(feature = "async"))]
+        let table = table.with_method("iter", |this: &mut Vec<ValueRef>, args| {
+            if args.is_empty() {
+                let iter = this.clone().into_iter();
+                return Ok(Some(ValueRef::new(Enumerator::new(Box::new(iter)))));
+            }
+            Err(RuntimeError::invalid_argument_count(0, args.len()))
+        });
+
+        table
+    });

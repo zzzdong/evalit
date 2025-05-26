@@ -1,22 +1,23 @@
 use crate::{Object, RuntimeError, Value, ValueRef};
 
-use super::Range;
+use super::{Range, metatable::MetaTable};
 
 impl Object for String {
     fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         write!(f, "\"{self}\"")
     }
 
-    fn compare(&self, other: &Value) -> Result<std::cmp::Ordering, RuntimeError> {
+    fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
+        println!("equal string {self} {other:?}");
         if let Some(other) = other.downcast_ref::<String>() {
-            return Ok(self.cmp(other));
+            return Ok(Value::new(self == other));
         }
 
         if let Some(other) = other.downcast_ref::<&str>() {
-            return Ok(self.as_str().cmp(other));
+            return Ok(Value::new(self == other));
         }
 
-        Err(RuntimeError::invalid_type::<String>(other))
+        Ok(Value::new(false))
     }
 
     fn add(&self, other: &Value) -> Result<Value, RuntimeError> {
@@ -31,6 +32,22 @@ impl Object for String {
         Err(RuntimeError::invalid_type::<String>(other))
     }
 
+    #[cfg(feature = "async")]
+    fn make_iterator(
+        &self,
+    ) -> Result<Box<dyn Iterator<Item = ValueRef> + Send + Sync>, RuntimeError> {
+        let chars = self
+            .chars()
+            .clone()
+            .map(ValueRef::new)
+            .collect::<Vec<ValueRef>>();
+
+        let iter = chars.into_iter();
+
+        Ok(Box::new(iter))
+    }
+
+    #[cfg(not(feature = "async"))]
     fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
         let chars = self
             .chars()
@@ -44,7 +61,7 @@ impl Object for String {
     }
 
     fn make_slice(&self, range: ValueRef) -> Result<Value, RuntimeError> {
-        if let Some(range) = range.downcast_ref::<Range>() {
+        if let Some(range) = range.value().downcast_ref::<Range>() {
             let len = self.chars().count();
 
             let (start, end) = range.get_range(len)?;
@@ -62,6 +79,13 @@ impl Object for String {
             super::OperateKind::MakeSlice,
             format!("cannot make_slice with {range:?}"),
         ))
+    }
+    fn call_method(
+        &mut self,
+        method: &str,
+        args: &[ValueRef],
+    ) -> Result<Option<ValueRef>, RuntimeError> {
+        STRING_META_TABLE.call_method(self, method, args)
     }
 }
 
@@ -82,16 +106,16 @@ impl Object for &'static str {
         write!(f, "\"{self}\"")
     }
 
-    fn compare(&self, other: &Value) -> Result<std::cmp::Ordering, RuntimeError> {
-        if let Some(other) = other.downcast_ref::<&str>() {
-            return Ok(self.cmp(other));
-        }
-
+    fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
         if let Some(other) = other.downcast_ref::<String>() {
-            return Ok(self.cmp(&other.as_str()));
+            return Ok(Value::new(self == other));
         }
 
-        Err(RuntimeError::invalid_type::<String>(other))
+        if let Some(other) = other.downcast_ref::<&str>() {
+            return Ok(Value::new(self == other));
+        }
+
+        Ok(Value::new(false))
     }
 }
 
@@ -129,3 +153,97 @@ impl PartialEq<char> for Value {
         }
     }
 }
+
+static STRING_META_TABLE: std::sync::LazyLock<MetaTable<String>> = std::sync::LazyLock::new(|| {
+    MetaTable::new("String")
+        .with_method("len", |this: &mut String, args| {
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.len())));
+            }
+            Err(RuntimeError::invalid_argument_count(0, args.len()))
+        })
+        .with_method("to_uppercase", |this: &mut String, args| {
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.to_uppercase())));
+            }
+            Err(RuntimeError::invalid_argument_count(0, args.len()))
+        })
+        .with_method("to_lowercase", |this: &mut String, args| {
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.to_lowercase())));
+            }
+            Err(RuntimeError::invalid_argument_count(0, args.len()))
+        })
+        .with_method("starts_with", |this: &mut String, args| {
+            if args.len() == 1 {
+                let other = args[0].value();
+                let other = other.downcast_ref::<String>().unwrap();
+                return Ok(Some(ValueRef::new(this.starts_with(other.as_str()))));
+            }
+            Err(RuntimeError::invalid_argument_count(1, args.len()))
+        })
+        .with_method("ends_with", |this: &mut String, args| {
+            if args.len() == 1 {
+                let other = args[0].value();
+                let other = other.downcast_ref::<String>().unwrap();
+                return Ok(Some(ValueRef::new(this.ends_with(other.as_str()))));
+            }
+            Err(RuntimeError::invalid_argument_count(1, args.len()))
+        })
+        .with_method("contains", |this: &mut String, args| {
+            if args.len() == 1 {
+                let other = args[0].value();
+                let other = other.downcast_ref::<String>().unwrap();
+                return Ok(Some(ValueRef::new(this.contains(other.as_str()))));
+            }
+            Err(RuntimeError::invalid_argument_count(1, args.len()))
+        })
+        .with_method("replace", |this: &mut String, args| {
+            if args.len() == 2 {
+                let old = args[0].value();
+                let old = old.downcast_ref::<String>().unwrap();
+                let new = args[1].value();
+                let new = new.downcast_ref::<String>().unwrap();
+                return Ok(Some(ValueRef::new(
+                    this.replace(old.as_str(), new.as_str()),
+                )));
+            }
+            Err(RuntimeError::invalid_argument_count(2, args.len()))
+        })
+        .with_method("split", |this: &mut String, args| {
+            if args.len() == 1 {
+                let delimiter = args[0].value();
+                let delimiter = delimiter.downcast_ref::<String>().unwrap();
+                return Ok(Some(ValueRef::new(
+                    this.split(delimiter.as_str())
+                        .map(|s| s.to_string())
+                        .collect::<Vec<String>>(),
+                )));
+            }
+            Err(RuntimeError::invalid_argument_count(1, args.len()))
+        })
+        .with_method("trim", |this: &mut String, args| {
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.trim().to_string())));
+            }
+            Err(RuntimeError::invalid_argument_count(0, args.len()))
+        })
+        .with_method("trim_start", |this: &mut String, args| {
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.trim_start().to_string())));
+            }
+            Err(RuntimeError::invalid_argument_count(0, args.len()))
+        })
+        .with_method("trim_end", |this: &mut String, args| {
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.trim_end().to_string())));
+            }
+            Err(RuntimeError::invalid_argument_count(0, args.len()))
+        })
+        .with_method("chars", |this: &mut String, args| {
+            if args.is_empty() {
+                return Ok(Some(ValueRef::new(this.chars().collect::<Vec<char>>())));
+            }
+            Err(RuntimeError::invalid_argument_count(0, args.len()))
+        })
+});

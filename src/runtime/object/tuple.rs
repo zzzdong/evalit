@@ -23,111 +23,81 @@ impl Object for () {
     }
 }
 
-impl Object for (ValueRef, ValueRef) {
-    fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "({:?}, {:?})", self.0, self.1)
-    }
+macro_rules! impl_object_for_tuple {
+    ($n: expr, $($idx: tt => $t: ident),+) => {
+        impl Object for ($($t,)*) {
+            fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "({:?}, {:?})", self.0, self.1)
+            }
 
-    fn index_get(&self, index: &Value) -> Result<ValueRef, RuntimeError> {
-        let value = index
-            .downcast_ref::<i64>()
-            .ok_or(RuntimeError::invalid_type::<i64>(index))?;
+            fn index_get(&self, index: &Value) -> Result<ValueRef, RuntimeError> {
+                let value = index
+                    .downcast_ref::<i64>()
+                    .ok_or(RuntimeError::invalid_type::<i64>(index))?;
 
-        match *value {
-            0 => Ok(self.0.clone()),
-            1 => Ok(self.1.clone()),
-            _ => Err(RuntimeError::IndexOutOfBounds {
-                index: *value,
-                length: 2,
-            }),
+                match *value {
+                    $(
+                        $idx => Ok(self.$idx.clone()),
+                    )*
+                    _ => Err(RuntimeError::IndexOutOfBounds {
+                        index: *value,
+                        length: $n,
+                    }),
+                }
+            }
         }
-    }
+    };
 }
 
-// impl Object for (ValueRef, ValueRef) {
-//     fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         write!(f, "({:?}, {:?})", self.0, self.1)
-//     }
+impl_object_for_tuple!(2, 0=>ValueRef, 1=>ValueRef);
+impl_object_for_tuple!(3, 0=>ValueRef, 1=>ValueRef, 2=>ValueRef);
+impl_object_for_tuple!(4, 0=>ValueRef, 1=>ValueRef, 2=>ValueRef, 3=>ValueRef);
+impl_object_for_tuple!(5, 0=>ValueRef, 1=>ValueRef, 2=>ValueRef, 3=>ValueRef, 4=>ValueRef);
+impl_object_for_tuple!(6, 0=>ValueRef, 1=>ValueRef, 2=>ValueRef, 3=>ValueRef, 4=>ValueRef, 5=>ValueRef);
+impl_object_for_tuple!(7, 0=>ValueRef, 1=>ValueRef, 2=>ValueRef, 3=>ValueRef, 4=>ValueRef, 5=>ValueRef, 6=>ValueRef);
+impl_object_for_tuple!(8, 0=>ValueRef, 1=>ValueRef, 2=>ValueRef, 3=>ValueRef, 4=>ValueRef, 5=>ValueRef, 6=>ValueRef, 7=>ValueRef);
+impl_object_for_tuple!(9, 0=>ValueRef, 1=>ValueRef, 2=>ValueRef, 3=>ValueRef, 4=>ValueRef, 5=>ValueRef, 6=>ValueRef, 7=>ValueRef, 8=>ValueRef);
+impl_object_for_tuple!(10, 0=>ValueRef, 1=>ValueRef, 2=>ValueRef, 3=>ValueRef, 4=>ValueRef, 5=>ValueRef, 6=>ValueRef, 7=>ValueRef, 8=>ValueRef, 9=>ValueRef);
+impl_object_for_tuple!(11, 0=>ValueRef, 1=>ValueRef, 2=>ValueRef, 3=>ValueRef, 4=>ValueRef, 5=>ValueRef, 6=>ValueRef, 7=>ValueRef, 8=>ValueRef, 9=>ValueRef, 10=>ValueRef);
+impl_object_for_tuple!(12, 0=>ValueRef, 1=>ValueRef, 2=>ValueRef, 3=>ValueRef, 4=>ValueRef, 5=>ValueRef, 6=>ValueRef, 7=>ValueRef, 8=>ValueRef, 9=>ValueRef, 10=>ValueRef, 11=>ValueRef);
 
-//     fn index_get(&self, index: &Value) -> Result<ValueRef, RuntimeError> {
-//         let value = index
-//             .downcast_ref::<i64>()
-//             .ok_or(RuntimeError::invalid_type::<i64>(index))?;
+macro_rules! impl_object_for_object_tuple {
+    ($n: expr, $($idx: tt => $t: ident),+) => {
+        impl<$($t,)*> Object for ($($t,)*)
+        where
+            $($t: Object + Send + Clone),*
+        {
+            fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+                write!(f, "({:?}, {:?})", self.0, self.1)
+            }
 
-//         match *value {
-//             0 => Ok(self.0.clone()),
-//             1 => Ok(self.1.clone()),
-//             _ => Err(RuntimeError::IndexOutOfBounds {
-//                 index: *value,
-//                 length: 2,
-//             }),
-//         }
-//     }
-// }
+            fn index_get(&self, index: &Value) -> Result<ValueRef, RuntimeError> {
+                let value = index
+                    .downcast_ref::<i64>()
+                    .ok_or(RuntimeError::invalid_type::<i64>(index))?;
 
-// impl<T: Object + Clone> Object for (T, Value) {
-//     fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         write!(f, "({:?}, {:?})", self.0, self.1)
-//     }
-
-//     fn index_get(&self, index: &Value) -> Result<Value, RuntimeError> {
-//         let value = index
-//             .downcast_ref::<i64>()
-//             .ok_or(RuntimeError::invalid_type::<i64>(index))?;
-
-//         match *value {
-//             0 => Ok(Value::new(self.0.clone())),
-//             1 => Ok(self.1.clone()),
-//             _ => Err(RuntimeError::IndexOutOfBounds {
-//                 index: *value,
-//                 length: 2,
-//             }),
-//         }
-//     }
-// }
-
-// impl Object for (usize, Value) {
-//     fn debug(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-//         write!(f, "({}, {})", self.0, self.1)
-//     }
-
-//     fn index_get(&self, index: &Value) -> Result<Value, RuntimeError> {
-//         let value = index
-//             .downcast_ref::<i64>()
-//             .ok_or(RuntimeError::invalid_type::<i64>(index))?;
-
-//         match *value {
-//             0 => Ok(Value::new(self.0.clone())),
-//             1 => Ok(self.1.clone()),
-//             _ => Err(RuntimeError::IndexOutOfBounds {
-//                 index: *value,
-//                 length: 2,
-//             }),
-//         }
-//     }
-// }
-
-impl<T1, T2> Object for (T1, T2)
-where
-    T1: Object + Clone,
-    T2: Object + Clone,
-{
-    fn debug(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "()")
-    }
-
-    fn index_get(&self, index: &Value) -> Result<ValueRef, RuntimeError> {
-        let value = index
-            .downcast_ref::<i64>()
-            .ok_or(RuntimeError::invalid_type::<i64>(index))?;
-
-        match *value {
-            0 => Ok(ValueRef::new(self.0.clone())),
-            1 => Ok(ValueRef::new(self.1.clone())),
-            _ => Err(RuntimeError::IndexOutOfBounds {
-                index: *value,
-                length: 2,
-            }),
+                match *value {
+                    $(
+                        $idx => Ok(ValueRef::new(self.$idx.clone())),
+                    )*
+                    _ => Err(RuntimeError::IndexOutOfBounds {
+                        index: *value,
+                        length: $n,
+                    }),
+                }
+            }
         }
-    }
+    };
 }
+
+impl_object_for_object_tuple!(2, 0 => T0, 1 => T1);
+impl_object_for_object_tuple!(3, 0 => T0, 1 => T1, 2 => T2);
+impl_object_for_object_tuple!(4, 0 => T0, 1 => T1, 2 => T2, 3 => T3);
+impl_object_for_object_tuple!(5, 0 => T0, 1 => T1, 2 => T2, 3 => T3, 4 => T4);
+impl_object_for_object_tuple!(6, 0 => T0, 1 => T1, 2 => T2, 3 => T3, 4 => T4, 5 => T5);
+impl_object_for_object_tuple!(7, 0 => T0, 1 => T1, 2 => T2, 3 => T3, 4 => T4, 5 => T5, 6 => T6);
+impl_object_for_object_tuple!(8, 0 => T0, 1 => T1, 2 => T2, 3 => T3, 4 => T4, 5 => T5, 6 => T6, 7 => T7);
+impl_object_for_object_tuple!(9, 0 => T0, 1 => T1, 2 => T2, 3 => T3, 4 => T4, 5 => T5, 6 => T6, 7 => T7, 8 => T8);
+impl_object_for_object_tuple!(10, 0 => T0, 1 => T1, 2 => T2, 3 => T3, 4 => T4, 5 => T5, 6 => T6, 7 => T7, 8 => T8, 9 => T9);
+impl_object_for_object_tuple!(11, 0 => T0, 1 => T1, 2 => T2, 3 => T3, 4 => T4, 5 => T5, 6 => T6, 7 => T7, 8 => T8, 9 => T9, 10 => T10);
+impl_object_for_object_tuple!(12, 0 => T0, 1 => T1, 2 => T2, 3 => T3, 4 => T4, 5 => T5, 6 => T6, 7 => T7, 8 => T8, 9 => T9, 10 => T10, 11 => T11);

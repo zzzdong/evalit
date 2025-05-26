@@ -63,9 +63,56 @@ float number, f64.
 
 string quote by `"`
 
+
+## variable
+
+variable name is a string, start with `_` or letter, and can contain letter, number, `_`.
+
+```rust
+let a;
+let a = 1;
+```
+
+## expression
+
+```rust
+1 + 2 * 3;
+```
+
+### operator
+
+
+| operator | description |
+| -------- | ----------- |
+| `+` | add |
+| `-` | subtract |
+| `*` | multiply |
+| `/` | divide |
+| `%` | remainder |
+| `==` | equal |
+| `!=` | not equal |
+| `<` | less than |
+| `<=` | less than or equal |
+| `>` | greater than |
+| `>=` | greater than or equal |
+| `&&` | and |
+| `\|\|` | or |
+| `!` | not |
+| `=` | assign |
+| `+=` | add assign |
+| `-=` | subtract assign |
+| `*=` | multiply assign |
+| `/=` | divide assign |
+| `%=` | remainder assign |
+| `[]` | index |
+| `.` | member |
+| `()` | call |
+| `..` | range |
+
+
 ## control flow
 
-### loop
+### loop statement
 
 `loop` to repeat.
 
@@ -73,15 +120,15 @@ string quote by `"`
 loop {}
 ```
 
-### while
+### while statement
 
-`while` to repeat.
+`while` to conditional repeat.
 
 ```rust
 while condition {}
 ```
 
-### for
+### for statement
 
 `for` to iterate.
 
@@ -89,7 +136,7 @@ while condition {}
 for i in 0..=10 {}
 ```
 
-### if 
+### if statement
 
 `if` to choose branch.
 
@@ -97,19 +144,19 @@ for i in 0..=10 {}
 if condition {} else {}
 ```
 
-### break
+### break statement
 
 `break` to exist loop.
 
-### continue
+### continue statement
 
 `continue` to finish one iterate.
 
-### return
+### return statement
 
 `return` to return value.
 
-## fn 
+## fn item
 
 ### user defined function
 

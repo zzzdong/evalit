@@ -412,7 +412,7 @@ impl Interpreter {
             BinOp::Sub => left.get().sub(&right.get())?,
             BinOp::Mul => left.get().mul(&right.get())?,
             BinOp::Div => left.get().div(&right.get())?,
-            BinOp::Mod => left.get().modulo(&right.get())?,
+            BinOp::Rem => left.get().rem(&right.get())?,
             BinOp::LogicAnd => left.get().logic_and(&right.get())?,
             BinOp::LogicOr => left.get().logic_or(&right.get())?,
             BinOp::Equal => Value::new(left.get().compare(&right.get())?.is_eq()),

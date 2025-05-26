@@ -1,6 +1,7 @@
 use std::{
-    fmt, io,
-    io::{Error, ErrorKind},
+    collections::HashMap,
+    fmt,
+    io::{self, Error, ErrorKind},
     str::FromStr,
 };
 
@@ -71,47 +72,61 @@ impl Span {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum Type {
-    Void,
-    Null,
+    Any,
     Boolean,
     Byte,
     Integer,
     Float,
     Char,
     String,
-    Function {
-        params: Vec<Option<Type>>,
-        return_ty: Option<Box<Type>>,
-    },
-    DynObject,
     Range,
-    EnvObject,
+    Tuple(Vec<Type>),
+    Array(Box<Type>),
+    Map(Box<Type>),
     Unknown,
+    UserDefined(String),
+    Decl(Declaration),
 }
 
 impl Type {
     pub fn is_boolean(&self) -> bool {
-        matches!(self, Type::Boolean | Type::Void)
+        matches!(self, Type::Boolean)
     }
 
     pub fn is_numeric(&self) -> bool {
-        matches!(self, Type::Byte | Type::Integer | Type::Float | Type::Void)
+        matches!(self, Type::Byte | Type::Integer | Type::Float)
     }
 
     pub fn is_string(&self) -> bool {
         matches!(self, Type::String)
     }
 
-    pub fn is_object(&self) -> bool {
-        matches!(self, Type::DynObject)
-    }
-
-    pub fn is_function(&self) -> bool {
-        matches!(self, Type::Function { .. })
-    }
-
     pub fn is_unknown(&self) -> bool {
         matches!(self, Type::Unknown)
+    }
+
+    pub fn is_collection(&self) -> bool {
+        matches!(self, Type::Array(_) | Type::Map(_))
+    }
+
+    pub fn is_any(&self) -> bool {
+        matches!(self, Type::Any)
+    }
+
+    pub fn get_array_element_type(&self) -> Option<&Type> {
+        if let Type::Array(ty) = self {
+            Some(ty.as_ref())
+        } else {
+            None
+        }
+    }
+
+    pub fn get_map_value_type(&self) -> Option<&Type> {
+        if let Type::Map(ty) = self {
+            Some(ty.as_ref())
+        } else {
+            None
+        }
     }
 }
 
@@ -232,6 +247,7 @@ pub struct ReturnStatement {
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpression {
+    Any,
     Boolean,
     Byte,
     Integer,
@@ -255,8 +271,6 @@ pub enum Expression {
     Array(ArrayExpression),
     Map(MapExpression),
     Closure(ClosureExpression),
-    Member(MemberExpression),
-    Index(IndexExpression),
     Range(RangeExpression),
     Slice(SliceExpression),
     Assign(AssignExpression),
@@ -265,6 +279,12 @@ pub enum Expression {
     Await(Box<ExpressionNode>),
     Prefix(PrefixExpression),
     Binary(BinaryExpression),
+    IndexGet(IndexGetExpression),
+    IndexSet(IndexSetExpression),
+    PropertyGet(PropertyGetExpression),
+    PropertySet(PropertySetExpression),
+    CallMethod(CallMethodExpression),
+    StructExpr(StructExpression),
 }
 
 impl Expression {
@@ -293,21 +313,9 @@ pub struct AssignExpression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct MemberExpression {
-    pub object: Box<ExpressionNode>,
-    pub property: String,
-}
-
-#[derive(Debug, Clone, PartialEq)]
 pub struct CallExpression {
     pub func: Box<ExpressionNode>,
     pub args: Vec<ExpressionNode>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct IndexExpression {
-    pub object: Box<ExpressionNode>,
-    pub index: Box<ExpressionNode>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -344,7 +352,7 @@ pub enum BinOp {
     Sub,
     Mul,
     Div,
-    Mod,
+    Rem,
     LogicAnd,
     LogicOr,
     Less,
@@ -366,7 +374,7 @@ impl fmt::Display for BinOp {
             BinOp::Sub => write!(f, "-"),
             BinOp::Mul => write!(f, "*"),
             BinOp::Div => write!(f, "/"),
-            BinOp::Mod => write!(f, "%"),
+            BinOp::Rem => write!(f, "%"),
             BinOp::LogicAnd => write!(f, "&&"),
             BinOp::LogicOr => write!(f, "||"),
             BinOp::Less => write!(f, "<"),
@@ -392,7 +400,7 @@ impl FromStr for BinOp {
             "-" => Ok(BinOp::Sub),
             "*" => Ok(BinOp::Mul),
             "/" => Ok(BinOp::Div),
-            "%" => Ok(BinOp::Mod),
+            "%" => Ok(BinOp::Rem),
             "&&" => Ok(BinOp::LogicAnd),
             "||" => Ok(BinOp::LogicOr),
             "<" => Ok(BinOp::Less),
@@ -488,4 +496,81 @@ pub enum PathSeg {
     Super,
     Self_,
     Crate,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexGetExpression {
+    pub object: Box<ExpressionNode>,
+    pub index: Box<ExpressionNode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct IndexSetExpression {
+    pub object: Box<ExpressionNode>,
+    pub index: Box<ExpressionNode>,
+    pub value: Box<ExpressionNode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertyGetExpression {
+    pub object: Box<ExpressionNode>,
+    pub property: String,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct PropertySetExpression {
+    pub object: Box<ExpressionNode>,
+    pub property: String,
+    pub value: Box<ExpressionNode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct CallMethodExpression {
+    pub object: Box<ExpressionNode>,
+    pub method: String,
+    pub args: Vec<ExpressionNode>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructExpression {
+    pub name: String,
+    pub fields: Vec<StructExprField>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructExprField {
+    pub name: String,
+    pub value: ExpressionNode,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum Declaration {
+    Function(FunctionDeclaration),
+    Struct(StructDeclaration),
+    Enum(EnumDeclaration),
+}
+
+impl Declaration {
+    pub fn is_function(&self) -> bool {
+        matches!(self, Declaration::Function(_))
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct FunctionDeclaration {
+    pub name: String,
+    pub params: Vec<(String, Option<Type>)>,
+    pub return_type: Option<Box<Type>>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct StructDeclaration {
+    pub name: String,
+    pub fields: HashMap<String, Type>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct EnumDeclaration {
+    pub name: String,
+    pub variants: Vec<(String, Option<Type>)>,
 }
