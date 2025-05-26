@@ -27,9 +27,7 @@ where
     }
 
     fn index_set(&mut self, index: &Value, value: ValueRef) -> Result<(), RuntimeError> {
-        if let Some(key) = index.downcast_ref::<K>()
-            && let Some(value) = value.value().downcast_ref::<V>()
-        {
+        if let (Some(key), Some(value)) = (index.downcast_ref::<K>(), value.value().downcast_ref::<V>()) {
             self.insert(key.clone(), value.clone());
             return Ok(());
         }

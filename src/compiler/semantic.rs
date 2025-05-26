@@ -307,7 +307,7 @@ impl<'a> SemanticAnalyzer<'a> {
         Ok(())
     }
 
-    fn analyze_struct_item(&mut self, item: &mut StructItem) -> Result<(), CompileError> {
+    fn analyze_struct_item(&mut self, _item: &mut StructItem) -> Result<(), CompileError> {
         Ok(())
     }
 
@@ -473,12 +473,11 @@ impl<'a> SemanticAnalyzer<'a> {
 
             for (arg, param_ty) in expr.args.iter_mut().zip(params.iter()) {
                 let arg_ty = self.analyze_expression(arg)?;
-                if let Some(ty) = &param_ty.1
-                    && arg_ty != *ty
-                    && arg_ty != Type::Any
-                {
-                    return Err(CompileError::type_mismatch(ty.clone(), arg_ty, arg.span()));
-                };
+                if let Some(ty) = &param_ty.1 {
+                    if arg_ty != *ty && arg_ty != Type::Any {
+                        return Err(CompileError::type_mismatch(ty.clone(), arg_ty, arg.span()));
+                    }
+                }
             }
 
             Ok(return_type
@@ -554,8 +553,8 @@ impl<'a> SemanticAnalyzer<'a> {
         expr: &mut IndexSetExpression,
     ) -> Result<Type, CompileError> {
         let object_ty = self.analyze_expression(expr.object.as_mut())?;
-        let index_ty = self.analyze_expression(expr.index.as_mut())?;
         let value_ty = self.analyze_expression(expr.value.as_mut())?;
+        // index 不需要分析
 
         match object_ty {
             Type::Array(ty) => {

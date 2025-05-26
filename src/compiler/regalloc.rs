@@ -323,9 +323,10 @@ impl LiveIntervalAnalyzer {
                                     let succ_block_id = cfg.graph[succ_node];
                                     if let Some(succ_block) =
                                         cfg.blocks.iter().position(|b| b.id == succ_block_id)
-                                        && succ_block <= block_id
                                     {
-                                        interval.update_end(block_starts[succ_block]);
+                                        if succ_block <= block_id {
+                                            interval.update_end(block_starts[succ_block]);
+                                        }
                                     }
                                 }
                             } else {
@@ -415,12 +416,13 @@ impl RegAlloc {
         }
 
         let interval = self.liveness.intervals.get(&value).unwrap();
-        if interval.ranges.iter().any(|range| range.end == index)
-            && let Some(stack) = interval.stack
-            && let Some(register) = self.reg_set.release(value)
-        {
-            let spill = Action::Spill { register, stack };
-            return Some(spill);
+        if interval.ranges.iter().any(|range| range.end == index) {
+            if let Some(stack) = interval.stack {
+                if let Some(register) = self.reg_set.release(value) {
+                    let spill = Action::Spill { register, stack };
+                    return Some(spill);
+                }
+            }
         }
 
         None

@@ -4,7 +4,7 @@ use criterion::{Criterion, criterion_group, criterion_main};
 use evalit::{Environment, Interpreter, Module, Object, VM, compile};
 
 fn run_script(code: &str) -> Result<(), String> {
-    Interpreter::eval(code, Environment::new());
+    Interpreter::eval(code, Environment::new()).unwrap();
 
     Ok(())
 }
@@ -92,7 +92,7 @@ fn bench_native_fibonacci(c: &mut Criterion) {
         if n <= 1 {
             return n;
         }
-        return fib(n - 1) + fib(n - 2);
+        fib(n - 1) + fib(n - 2)
     }
 
     c.bench_function("native fibonacci", |b| {

@@ -134,12 +134,12 @@ mod scripting {
                                     .map(|header_value| ValueRef::new(header_value.to_string())));
                             }
 
-                            return Ok(None);
+                            Ok(None)
                         }
                         None => {
-                            return Err(evalit::RuntimeError::invalid_argument::<String>(
+                            Err(evalit::RuntimeError::invalid_argument::<String>(
                                 0, &args[0],
-                            ));
+                            ))
                         }
                     }
                 }
@@ -159,12 +159,12 @@ mod scripting {
                                 HeaderValue::from_bytes(header_value.as_str().as_bytes()).unwrap(),
                             );
 
-                            return Ok(None);
+                            Ok(None)
                         }
                         _ => {
-                            return Err(evalit::RuntimeError::invalid_argument::<String>(
+                            Err(evalit::RuntimeError::invalid_argument::<String>(
                                 0, &args[0],
-                            ));
+                            ))
                         }
                     }
                 }
@@ -178,12 +178,12 @@ mod scripting {
                         Some(header_name) => {
                             self.inner.headers_mut().remove(header_name.as_str());
 
-                            return Ok(None);
+                            Ok(None)
                         }
                         None => {
-                            return Err(evalit::RuntimeError::invalid_argument::<String>(
+                            Err(evalit::RuntimeError::invalid_argument::<String>(
                                 0, &args[0],
-                            ));
+                            ))
                         }
                     }
                 }
@@ -192,11 +192,11 @@ mod scripting {
                     if !args.is_empty() {
                         return Err(evalit::RuntimeError::invalid_argument_count(1, 0));
                     }
-                    return Ok(Some(ValueRef::new(self.remote_addr.clone())));
+                    Ok(Some(ValueRef::new(self.remote_addr.clone())))
                 }
 
                 _ => {
-                    return Err(evalit::RuntimeError::missing_method::<Self>(method));
+                    Err(evalit::RuntimeError::missing_method::<Self>(method))
                 }
             }
         }

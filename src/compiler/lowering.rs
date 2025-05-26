@@ -463,8 +463,8 @@ impl<'a> ASTLower<'a> {
 
         let decl = self.type_cx.get_type_decl(&name).expect("struct not found");
         if let Declaration::Struct(StructDeclaration {
-            name,
             fields: decl_fields,
+            ..
         }) = decl
         {
             for name in decl_fields.keys() {

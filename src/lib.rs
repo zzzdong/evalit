@@ -7,6 +7,8 @@ mod runtime;
 pub use bytecode::Module;
 pub use compiler::{Compiler, compile};
 pub use error::Error;
+#[cfg(feature = "async")]
+pub use interpreter::eval_async;
 pub use interpreter::{Interpreter, eval};
 
 #[cfg(feature = "async")]

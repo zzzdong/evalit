@@ -201,7 +201,7 @@ fn test_rust_object_interop() {
                     }
                     Ok(Some(ValueRef::new(self.value)))
                 }
-                _ => return Err(evalit::RuntimeError::missing_method::<Self>(method)),
+                _ => Err(evalit::RuntimeError::missing_method::<Self>(method)),
             }
         }
     }

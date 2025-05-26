@@ -349,30 +349,32 @@ impl Codegen {
 
                 let (defined, used) = inst.defined_and_used_vars();
                 for var in defined {
-                    if matches!(var, Value::Variable(_))
-                        && let Some(Action::Spill { stack, register }) =
+                    if matches!(var, Value::Variable(_)) {
+                        if let Some(Action::Spill { stack, register }) =
                             self.reg_alloc.release(var, self.inst_index)
-                    {
-                        trace!("spilling({var}) {register} -> [rbp+{stack}]");
-                        self.codes.push(Bytecode::double(
-                            Opcode::Mov,
-                            Operand::Stack(stack as isize),
-                            register.into(),
-                        ));
+                        {
+                            trace!("spilling({var}) {register} -> [rbp+{stack}]");
+                            self.codes.push(Bytecode::double(
+                                Opcode::Mov,
+                                Operand::Stack(stack as isize),
+                                register.into(),
+                            ));
+                        }
                     }
                 }
 
                 for var in used {
-                    if matches!(var, Value::Variable(_))
-                        && let Some(Action::Spill { stack, register }) =
+                    if matches!(var, Value::Variable(_)) {
+                        if let Some(Action::Spill { stack, register }) =
                             self.reg_alloc.release(var, self.inst_index)
-                    {
-                        trace!("spilling({var}) {register} -> [rbp+{stack}]");
-                        self.codes.push(Bytecode::double(
-                            Opcode::Mov,
-                            Operand::Stack(stack as isize),
-                            register.into(),
-                        ));
+                        {
+                            trace!("spilling({var}) {register} -> [rbp+{stack}]");
+                            self.codes.push(Bytecode::double(
+                                Opcode::Mov,
+                                Operand::Stack(stack as isize),
+                                register.into(),
+                            ));
+                        }
                     }
                 }
 
@@ -664,16 +666,17 @@ impl Codegen {
                 .instructions
                 .iter()
                 .rposition(|item| matches!(item, Instruction::Return { .. }))
-                && i + 1 < block.instructions.len()
             {
-                block.instructions.drain(i + 1..);
+                if i + 1 < block.instructions.len() {
+                    block.instructions.drain(i + 1..);
+                }
             }
 
             let next_block_id = iter.peek().map(|b| b.id);
-            if let Some(Instruction::Br { dst }) = block.instructions.last()
-                && next_block_id == dst.as_block()
-            {
-                block.instructions.pop();
+            if let Some(Instruction::Br { dst }) = block.instructions.last() {
+                if next_block_id == dst.as_block() {
+                    block.instructions.pop();
+                }
             }
         }
 
