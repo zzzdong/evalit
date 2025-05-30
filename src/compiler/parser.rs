@@ -38,6 +38,12 @@ impl std::error::Error for ParseError {}
 
 type Result<T> = std::result::Result<T, ParseError>;
 
+impl Span {
+    fn from_pair(pair: &Pair<Rule>) -> Self {
+        Span::new(pair.as_span().start(), pair.as_span().end())
+    }
+}
+
 #[derive(pest_derive::Parser)]
 #[grammar = "compiler/ast/grammar.pest"]
 struct PestParser;
@@ -164,7 +170,7 @@ fn parse_statement(pair: Pair<Rule>) -> Result<StatementNode> {
         _ => unreachable!("unknown statement: {pair:?}"),
     };
 
-    Ok(AstNode::new(stmt, span, Type::Unknown))
+    Ok(AstNode::new(stmt, span))
 }
 
 fn parse_item_statement(pair: Pair<Rule>) -> Result<ItemStatement> {
@@ -173,7 +179,7 @@ fn parse_item_statement(pair: Pair<Rule>) -> Result<ItemStatement> {
     match stat.as_rule() {
         Rule::enum_item => Ok(ItemStatement::Enum(parse_enum_item(stat))),
         Rule::struct_item => Ok(ItemStatement::Struct(parse_struct_item(stat))),
-        Rule::fn_item => parse_function_item(stat).map(ItemStatement::Fn),
+        Rule::fn_item => parse_function_item(stat).map(ItemStatement::Function),
         _ => unreachable!("unknown item statement: {stat:?}"),
     }
 }
@@ -191,21 +197,15 @@ fn parse_enum_item(pair: Pair<Rule>) -> EnumItem {
 }
 
 fn parse_enum_field(pair: Pair<Rule>) -> EnumVariant {
-    let field = pair.into_inner().next().unwrap();
-    match field.as_rule() {
-        Rule::simple_enum_field => EnumVariant::Simple(field.as_str().to_string()),
-        Rule::tuple_enum_field => parse_tuple_enum_field(field),
-        _ => unreachable!("{field:?}"),
-    }
-}
-
-fn parse_tuple_enum_field(pair: Pair<Rule>) -> EnumVariant {
     let mut pairs = pair.into_inner();
 
-    let name = pairs.next().unwrap().as_str().to_string();
-    let tuple = pairs.map(|item| parse_type_expression(item)).collect();
+    let name = pairs.next().unwrap();
+    let ty = pairs.next().map(|item| parse_type_expression(item));
 
-    EnumVariant::Tuple(name, tuple)
+    EnumVariant {
+        name: name.as_str().to_string(),
+        variant: ty,
+    }
 }
 
 fn parse_struct_item(pair: Pair<Rule>) -> StructItem {
@@ -327,9 +327,8 @@ fn parse_if_statement(pair: Pair<Rule>) -> Result<IfStatement> {
             let span = Span::from_pair(&pair);
             match pair.as_rule() {
                 Rule::block => parse_block(pair),
-                Rule::if_statement => parse_if_statement(pair).map(|item| {
-                    BlockStatement(vec![AstNode::new(Statement::If(item), span, Type::Unknown)])
-                }),
+                Rule::if_statement => parse_if_statement(pair)
+                    .map(|item| BlockStatement(vec![AstNode::new(Statement::If(item), span)])),
                 _ => unreachable!("unknown else_branch: {:?}", pair),
             }
         })
@@ -451,7 +450,7 @@ fn parse_prefix(op: Pair<Rule>, rhs: Result<ExpressionNode>) -> Result<Expressio
         rhs: Box::new(rhs?),
     });
 
-    Ok(AstNode::new(expr, span, Type::Unknown))
+    Ok(AstNode::new(expr, span))
 }
 
 fn parse_infix(
@@ -504,7 +503,7 @@ fn parse_infix(
         }),
     };
 
-    Ok(AstNode::new(expr, span, Type::Unknown))
+    Ok(AstNode::new(expr, span))
 }
 
 fn create_assign_binary_expression(
@@ -526,7 +525,7 @@ fn create_assign_binary_expression(
             rhs: Box::new(rhs_expr),
         });
 
-        let binary_node = AstNode::new(binary, span, Type::Unknown);
+        let binary_node = AstNode::new(binary, span);
 
         // 构造 PropertySetExpression
         Expression::PropertySet(PropertySetExpression {
@@ -542,7 +541,7 @@ fn create_assign_binary_expression(
             rhs: Box::new(rhs_expr),
         });
 
-        let binary_node = AstNode::new(binary, span, Type::Unknown);
+        let binary_node = AstNode::new(binary, span);
 
         Expression::Assign(AssignExpression {
             object: Box::new(lhs_expr),
@@ -606,7 +605,7 @@ fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<Expressi
 
                     let expr = SliceExpression {
                         object,
-                        range: AstNode::new(range, span, Type::Range),
+                        range: AstNode::new(range, span),
                     };
 
                     Expression::Slice(expr)
@@ -624,7 +623,7 @@ fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<Expressi
 
                     let expr = SliceExpression {
                         object,
-                        range: AstNode::new(range, span, Type::Range),
+                        range: AstNode::new(range, span),
                     };
 
                     Expression::Slice(expr)
@@ -673,7 +672,7 @@ fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<Expressi
 
             let expr = SliceExpression {
                 object,
-                range: AstNode::new(range, span, Type::Range),
+                range: AstNode::new(range, span),
             };
 
             Expression::Slice(expr)
@@ -682,7 +681,7 @@ fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<Expressi
         _ => unreachable!("unknown postfix: {:?}", op),
     };
 
-    Ok(AstNode::new(expr, span, Type::Unknown))
+    Ok(AstNode::new(expr, span))
 }
 
 fn parse_struct_expression(pair: Pair<Rule>) -> Result<ExpressionNode> {
@@ -693,6 +692,7 @@ fn parse_struct_expression(pair: Pair<Rule>) -> Result<ExpressionNode> {
     let mut pairs = pair.into_inner();
 
     let name = pairs.next().unwrap();
+    let name_span = Span::from_pair(&name);
     assert_eq!(name.as_rule(), Rule::identifier);
     let name = name.as_str().to_string();
 
@@ -703,15 +703,11 @@ fn parse_struct_expression(pair: Pair<Rule>) -> Result<ExpressionNode> {
         .collect::<Result<Vec<_>>>()?;
 
     let expr = StructExpression {
-        name: name.clone(),
+        name: AstNode::new(name, name_span),
         fields,
     };
 
-    Ok(AstNode::new(
-        Expression::StructExpr(expr),
-        span,
-        Type::Unknown,
-    ))
+    Ok(AstNode::new(Expression::StructExpr(expr), span))
 }
 
 fn parse_struct_expression_field(pair: Pair<Rule>) -> Result<StructExprField> {
@@ -721,8 +717,7 @@ fn parse_struct_expression_field(pair: Pair<Rule>) -> Result<StructExprField> {
 
     let name = pairs.next().unwrap();
     assert_eq!(name.as_rule(), Rule::identifier);
-    let name = name.as_str().to_string();
-
+    let name = AstNode::new(name.as_str().to_string(), Span::from_pair(&name));
     let value = parse_expression(pairs.next().unwrap())?;
 
     Ok(StructExprField { name, value })
@@ -744,7 +739,7 @@ fn parse_atom(pair: Pair<Rule>) -> Result<ExpressionNode> {
         _ => unreachable!("unknown atom: {:?}", pair),
     }?;
 
-    Ok(AstNode::new(expr, span, Type::Unknown))
+    Ok(AstNode::new(expr, span))
 }
 
 fn parse_closure(pair: Pair<Rule>) -> Result<ClosureExpression> {
@@ -1525,7 +1520,7 @@ mod test {
 
     #[test]
     fn test_enum_item() {
-        let input = r#"enum A { AA, BB(int, float) }"#;
+        let input = r#"enum A { AA, BB(int) }"#;
         let item_statement = parse_statement_input(input).unwrap();
         if let Statement::Item(ItemStatement::Enum(enum_item)) = item_statement.node {
             // 检查枚举名称
@@ -1535,17 +1530,22 @@ mod test {
             assert_eq!(enum_item.variants.len(), 2);
 
             // 检查第一个变体（简单变体）
-            assert_eq!(enum_item.variants[0], EnumVariant::Simple("AA".to_string()));
+            assert_eq!(
+                enum_item.variants[0],
+                EnumVariant {
+                    name: "AA".to_string(),
+                    variant: None
+                }
+            );
 
-            // 检查第二个变体（元组变体）
-            if let EnumVariant::Tuple(name, types) = &enum_item.variants[1] {
-                assert_eq!(name, "BB");
-                assert_eq!(types.len(), 2);
-                assert_eq!(types[0], TypeExpression::Integer);
-                assert_eq!(types[1], TypeExpression::Float);
-            } else {
-                panic!("Expected tuple variant");
-            }
+            // 检查第二个变体（值变体）
+            assert_eq!(
+                enum_item.variants[0],
+                EnumVariant {
+                    name: "BB".to_string(),
+                    variant: Some(TypeExpression::Integer)
+                }
+            );
         } else {
             panic!("Expected enum item statement");
         }
@@ -1578,7 +1578,7 @@ mod test {
     fn test_function_item() {
         let input = r#"fn A(a: int, b: float) -> int { return a + b; }"#;
         let item_statement = parse_statement_input(input).unwrap();
-        if let Statement::Item(ItemStatement::Fn(function)) = item_statement.node {
+        if let Statement::Item(ItemStatement::Function(function)) = item_statement.node {
             // 检查函数名和参数
             assert_eq!(function.name, "A");
             assert_eq!(function.params.len(), 2);

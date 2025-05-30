@@ -47,11 +47,8 @@ enum_item = { "enum" ~ identifier ~ "{" ~ (enum_item_list ~ ","?)? ~ "}" }
 
 enum_item_list = { enum_field ~ ("," ~ enum_field)* }
 
-enum_field = { simple_enum_field | tuple_enum_field }
+enum_field = { identifier ~ ("(" ~ type_expression ~ ")")?}
 
-simple_enum_field = { identifier ~ !"(" }
-
-tuple_enum_field = { identifier ~ "(" ~ type_expression ~ ("," ~ type_expression)* ~ ")" }
 
 /// Expression Statment
 expression_statement = { expression ~ ";" }

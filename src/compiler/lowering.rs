@@ -4,7 +4,8 @@ use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 use super::CompileError;
 use super::ast::syntax::*;
 use super::ir::{builder::*, instruction::*};
-use super::typing::TypeContext;
+use super::typing::{TypeContext, TypeDef};
+use crate::compiler::typing::{FunctionDef, StructDef};
 use crate::{
     Environment,
     bytecode::{FunctionId, Opcode, Primitive},
@@ -58,10 +59,8 @@ impl<'a> ASTLower<'a> {
         builder.switch_to_block(entry);
 
         // declare functions
-        for decl in self.type_cx.function_decls() {
-            if let Declaration::Function(func) = decl {
-                self.declare_function(func);
-            }
+        for func in self.type_cx.functions() {
+            self.declare_function(func);
         }
 
         let entry = self.create_block("main");
@@ -71,7 +70,7 @@ impl<'a> ASTLower<'a> {
         // split program into statements and items
         for stmt in prog.stmts {
             match stmt.node {
-                Statement::Item(ItemStatement::Fn(func)) => {
+                Statement::Item(ItemStatement::Function(func)) => {
                     self.lower_function_item(func);
                 }
                 Statement::Item(_) => {
@@ -145,7 +144,7 @@ impl<'a> ASTLower<'a> {
 
     fn lower_item_stmt(&mut self, item: ItemStatement) {
         match item {
-            ItemStatement::Fn(fn_item) => {
+            ItemStatement::Function(fn_item) => {
                 self.lower_function_item(fn_item);
             }
             _ => unimplemented!("statement {:?}", item),
@@ -458,11 +457,16 @@ impl<'a> ASTLower<'a> {
 
         let mut field_map = fields
             .into_iter()
-            .map(|StructExprField { name, value }| (name, self.lower_expression(value)))
+            .map(|StructExprField { name, value }| {
+                (name.node().clone(), self.lower_expression(value))
+            })
             .collect::<HashMap<_, _>>();
 
-        let decl = self.type_cx.get_type_decl(&name).expect("struct not found");
-        if let Declaration::Struct(StructDeclaration {
+        let decl = self
+            .type_cx
+            .get_type_def(&name.node())
+            .expect("struct not found");
+        if let TypeDef::Struct(StructDef {
             fields: decl_fields,
             ..
         }) = decl
@@ -677,8 +681,8 @@ impl<'a> ASTLower<'a> {
         }
     }
 
-    fn declare_function(&mut self, func: &FunctionDeclaration) -> FunctionId {
-        let FunctionDeclaration { name, params, .. } = func;
+    fn declare_function(&mut self, func: &FunctionDef) -> FunctionId {
+        let FunctionDef { name, params, .. } = func;
 
         let func_sig = FuncSignature::new(
             name.clone(),

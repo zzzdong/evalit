@@ -11,12 +11,11 @@ use pest::{RuleType, iterators::Pair};
 pub struct AstNode<T> {
     pub node: T,
     pub span: Span,
-    pub ty: Type,
 }
 
 impl<T> AstNode<T> {
-    pub fn new(node: T, span: Span, ty: Type) -> AstNode<T> {
-        AstNode { span, node, ty }
+    pub fn new(node: T, span: Span) -> AstNode<T> {
+        AstNode { span, node }
     }
 
     pub fn span(&self) -> Span {
@@ -25,10 +24,6 @@ impl<T> AstNode<T> {
 
     pub fn node(&self) -> &T {
         &self.node
-    }
-
-    pub fn ty(&self) -> &Type {
-        &self.ty
     }
 }
 
@@ -55,78 +50,15 @@ impl Span {
         Span { start, end }
     }
 
-    pub fn from_pair<R: RuleType>(pair: &Pair<R>) -> Span {
-        Span {
-            start: pair.as_span().start(),
-            end: pair.as_span().end(),
-        }
-    }
-
     pub fn merge(&self, other: &Span) -> Span {
         Span {
             start: self.start.min(other.start),
             end: self.end.max(other.end),
         }
     }
-}
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum Type {
-    Any,
-    Boolean,
-    Byte,
-    Integer,
-    Float,
-    Char,
-    String,
-    Range,
-    Tuple(Vec<Type>),
-    Array(Box<Type>),
-    Map(Box<Type>),
-    Unknown,
-    UserDefined(String),
-    Decl(Declaration),
-}
-
-impl Type {
-    pub fn is_boolean(&self) -> bool {
-        matches!(self, Type::Boolean)
-    }
-
-    pub fn is_numeric(&self) -> bool {
-        matches!(self, Type::Byte | Type::Integer | Type::Float)
-    }
-
-    pub fn is_string(&self) -> bool {
-        matches!(self, Type::String)
-    }
-
-    pub fn is_unknown(&self) -> bool {
-        matches!(self, Type::Unknown)
-    }
-
-    pub fn is_collection(&self) -> bool {
-        matches!(self, Type::Array(_) | Type::Map(_))
-    }
-
-    pub fn is_any(&self) -> bool {
-        matches!(self, Type::Any)
-    }
-
-    pub fn get_array_element_type(&self) -> Option<&Type> {
-        if let Type::Array(ty) = self {
-            Some(ty.as_ref())
-        } else {
-            None
-        }
-    }
-
-    pub fn get_map_value_type(&self) -> Option<&Type> {
-        if let Type::Map(ty) = self {
-            Some(ty.as_ref())
-        } else {
-            None
-        }
+    pub fn is_empty(&self) -> bool {
+        self.start == self.end
     }
 }
 
@@ -167,7 +99,7 @@ pub struct BlockStatement(pub Vec<StatementNode>);
 pub enum ItemStatement {
     Enum(EnumItem),
     Struct(StructItem),
-    Fn(FunctionItem),
+    Function(FunctionItem),
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -177,9 +109,9 @@ pub struct EnumItem {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub enum EnumVariant {
-    Simple(String),
-    Tuple(String, Vec<TypeExpression>),
+pub struct EnumVariant {
+    pub name: String,
+    pub variant: Option<TypeExpression>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -256,8 +188,8 @@ pub enum TypeExpression {
     String,
     Array(Box<TypeExpression>),
     Tuple(Vec<TypeExpression>),
-    Generic(String, Vec<TypeExpression>),
     UserDefined(String),
+    Generic(String, Vec<TypeExpression>),
     Impl(Box<TypeExpression>),
 }
 
@@ -533,44 +465,12 @@ pub struct CallMethodExpression {
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructExpression {
-    pub name: String,
+    pub name: AstNode<String>,
     pub fields: Vec<StructExprField>,
 }
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct StructExprField {
-    pub name: String,
+    pub name: AstNode<String>,
     pub value: ExpressionNode,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub enum Declaration {
-    Function(FunctionDeclaration),
-    Struct(StructDeclaration),
-    Enum(EnumDeclaration),
-}
-
-impl Declaration {
-    pub fn is_function(&self) -> bool {
-        matches!(self, Declaration::Function(_))
-    }
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct FunctionDeclaration {
-    pub name: String,
-    pub params: Vec<(String, Option<Type>)>,
-    pub return_type: Option<Box<Type>>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct StructDeclaration {
-    pub name: String,
-    pub fields: HashMap<String, Type>,
-}
-
-#[derive(Debug, Clone, PartialEq)]
-pub struct EnumDeclaration {
-    pub name: String,
-    pub variants: Vec<(String, Option<Type>)>,
 }

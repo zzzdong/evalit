@@ -5,19 +5,20 @@ mod lowering;
 mod parser;
 mod regalloc;
 mod semantic;
+mod symbol;
 mod typing;
 
 use std::collections::HashMap;
+use std::path::Path;
 use std::sync::Arc;
 
 use ir::builder::{InstBuilder, IrBuilder};
 use ir::instruction::IrUnit;
 use log::debug;
-use typing::TypeContext;
+use typing::{Type, TypeChecker, TypeContext, TypeError};
 
 use crate::Environment;
 use crate::bytecode::{Module, Register};
-use ast::syntax::{Span, Type};
 use parser::ParseError;
 
 use codegen::Codegen;
@@ -30,7 +31,9 @@ pub fn compile(script: &str, env: &crate::Environment) -> Result<Arc<crate::Modu
 
 #[derive(Debug)]
 pub enum CompileError {
+    Io(std::io::Error),
     Parse(ParseError),
+    Type(TypeError),
     Semantics(String),
     UndefinedVariable {
         name: String,
@@ -78,16 +81,36 @@ impl CompileError {
     }
 }
 
+impl From<std::io::Error> for CompileError {
+    fn from(error: std::io::Error) -> Self {
+        CompileError::Io(error)
+    }
+}
+
 impl From<ParseError> for CompileError {
     fn from(error: ParseError) -> Self {
         CompileError::Parse(error)
     }
 }
 
+impl From<TypeError> for CompileError {
+    fn from(error: TypeError) -> Self {
+        CompileError::Type(error)
+    }
+}
+
+impl From<SemanticsError> for CompileError {
+    fn from(error: SemanticsError) -> Self {
+        CompileError::Semantics(error)
+    }
+}
+
 impl std::fmt::Display for CompileError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            CompileError::Io(error) => write!(f, "IO error: {error}"),
             CompileError::Parse(error) => write!(f, "Parse error: {error}"),
+            CompileError::Type(error) => write!(f, "Type error: {error:?}"),
             CompileError::Semantics(message) => write!(f, "Semantics error: {message}"),
             CompileError::UndefinedVariable { name } => {
                 write!(f, "Undefined variable `{name}`")
@@ -129,6 +152,35 @@ impl std::fmt::Display for CompileError {
 
 impl std::error::Error for CompileError {}
 
+pub struct FileId(usize);
+
+pub struct Context {
+    sources: Vec<String>,
+}
+
+impl Context {
+    pub fn new() -> Self {
+        Self { sources: vec![] }
+    }
+
+    pub fn add_source(&mut self, source: String) -> FileId {
+        let id = FileId(self.sources.len());
+        self.sources.push(source);
+        id
+    }
+
+    pub fn add_file(&mut self, file: impl AsRef<Path>) -> Result<FileId, CompileError> {
+        let id = FileId(self.sources.len());
+        let content = std::fs::read_to_string(file.as_ref())?;
+        self.sources.push(content);
+        Ok(id)
+    }
+
+    pub fn get_source(&self, file: FileId) -> Option<&str> {
+        self.sources.get(file.0).map(|s| s.as_str())
+    }
+}
+
 pub struct Compiler {}
 
 impl Default for Compiler {
@@ -149,11 +201,11 @@ impl Compiler {
         debug!("AST: {ast:?}");
 
         let mut type_cx = TypeContext::new();
-        type_cx.process_env(env);
+        type_cx.analyze_type_def(&ast.stmts)?;
 
         // 语义分析
-        let mut analyzer = SemanticAnalyzer::new(&mut type_cx);
-        analyzer.analyze_program(&mut ast, env)?;
+        let mut checker = SemanticChecker::new(&mut type_cx);
+        checker.check_program(&mut ast, env)?;
 
         // IR生成, AST -> IR
         let mut unit = IrUnit::new();
