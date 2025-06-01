@@ -26,6 +26,14 @@ impl Environment {
         }
     }
 
+    pub fn keys(&self) -> impl Iterator<Item = &String> {
+        self.symbols.keys()
+    }
+
+    pub fn values(&self) -> impl Iterator<Item = &EnvVariable> {
+        self.symbols.values()
+    }
+
     pub fn with_variable<T: Object>(mut self, name: impl ToString, value: T) -> Self {
         self.insert(name, value);
         self

@@ -136,11 +136,9 @@ mod scripting {
 
                             Ok(None)
                         }
-                        None => {
-                            Err(evalit::RuntimeError::invalid_argument::<String>(
-                                0, &args[0],
-                            ))
-                        }
+                        None => Err(evalit::RuntimeError::invalid_argument::<String>(
+                            0, &args[0],
+                        )),
                     }
                 }
 
@@ -161,11 +159,9 @@ mod scripting {
 
                             Ok(None)
                         }
-                        _ => {
-                            Err(evalit::RuntimeError::invalid_argument::<String>(
-                                0, &args[0],
-                            ))
-                        }
+                        _ => Err(evalit::RuntimeError::invalid_argument::<String>(
+                            0, &args[0],
+                        )),
                     }
                 }
 
@@ -180,11 +176,9 @@ mod scripting {
 
                             Ok(None)
                         }
-                        None => {
-                            Err(evalit::RuntimeError::invalid_argument::<String>(
-                                0, &args[0],
-                            ))
-                        }
+                        None => Err(evalit::RuntimeError::invalid_argument::<String>(
+                            0, &args[0],
+                        )),
                     }
                 }
 
@@ -195,9 +189,7 @@ mod scripting {
                     Ok(Some(ValueRef::new(self.remote_addr.clone())))
                 }
 
-                _ => {
-                    Err(evalit::RuntimeError::missing_method::<Self>(method))
-                }
+                _ => Err(evalit::RuntimeError::missing_method::<Self>(method)),
             }
         }
     }

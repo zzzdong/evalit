@@ -1,10 +1,10 @@
 mod utils;
 use std::sync::Arc;
 
-use evalit::{Environment, Error, Module, Object, RuntimeError, VM, Value, ValueRef, compile};
+use evalit::{Environment, Module, Object, RuntimeError, VM, Value, ValueRef, compile};
 use utils::init_logger;
 
-fn run_vm(program: Arc<Module>, env: Environment) -> Result<Value, Error> {
+fn run_vm(program: Arc<Module>, env: Environment) -> Result<Value, RuntimeError> {
     let mut vm = VM::new(program, env);
     #[cfg(not(feature = "async"))]
     let ret = vm.run().unwrap();
