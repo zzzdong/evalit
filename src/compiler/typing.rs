@@ -1,8 +1,9 @@
-use std::{collections::HashMap, default};
+use std::collections::HashMap;
+
 
 use crate::{Environment, compiler::symbol::SymbolTable};
 
-use super::ast::{syntax::*, walker::Walker};
+use super::ast::syntax::*;
 
 #[derive(Debug, Clone)]
 pub struct TypeError {
@@ -16,7 +17,9 @@ impl TypeError {
     }
 
     pub fn with_span(mut self, span: Span) -> Self {
-        self.span = span;
+        if !span.is_zero() {
+            self.span = span;
+        }
         self
     }
 }
@@ -31,7 +34,7 @@ impl From<ErrKind> for TypeError {
 }
 
 #[derive(Debug, Clone)]
-enum ErrKind {
+pub enum ErrKind {
     Message(String),
     UnresovledType(String),
     DuplicateName(String),
@@ -57,6 +60,7 @@ pub enum Type {
     String,
     Array,
     Tuple,
+    Range,
     Enum(TypeId),
     Struct(TypeId),
     Function(Box<FunctionDef>),
@@ -107,6 +111,7 @@ pub struct StructDef {
     pub fields: HashMap<String, Type>,
 }
 
+#[derive(Debug, Clone)]
 pub struct TypeContext {
     type_defs: HashMap<TypeId, TypeDef>,
     name_to_id: HashMap<String, TypeId>,
@@ -163,7 +168,7 @@ impl TypeContext {
         self.functions.get(name).map(|v| &**v)
     }
 
-    pub fn analyze_type_def(&mut self, stmts: &[StatementNode]) -> Result<(), TypeError> {
+    pub fn check_type_def(&mut self, stmts: &[StatementNode]) -> Result<(), TypeError> {
         // round 1, decl types
         for stmt in stmts {
             match &stmt.node {
@@ -184,7 +189,8 @@ impl TypeContext {
                             name: item.name.clone(),
                             variants: Vec::new(),
                         }),
-                    );
+                    )
+                    .map_err(|err| err.with_span(stmt.span()))?;
                 }
                 _ => {}
             }
@@ -193,12 +199,14 @@ impl TypeContext {
         // round 2, resolve types
         for stmt in stmts {
             match &stmt.node {
-                Statement::Item(ItemStatement::Function(func)) => {}
+                Statement::Item(ItemStatement::Function(func)) => {
+                    self.check_function_item(func)?;
+                }
                 Statement::Item(ItemStatement::Struct(item)) => {
-                    self.analyze_struct_item(item)?;
+                    self.check_struct_item(item)?;
                 }
                 Statement::Item(ItemStatement::Enum(item)) => {
-                    self.analyze_enum_item(item)?;
+                    self.check_enum_item(item)?;
                 }
                 _ => {
                     continue;
@@ -209,7 +217,7 @@ impl TypeContext {
         Ok(())
     }
 
-    fn analyze_function_item(&mut self, item: &FunctionItem) -> Result<(), TypeError> {
+    fn check_function_item(&mut self, item: &FunctionItem) -> Result<(), TypeError> {
         let FunctionItem {
             name,
             params,
@@ -230,7 +238,7 @@ impl TypeContext {
             let param_type = param
                 .ty
                 .as_ref()
-                .map(|ty| self.resolve_type(&ty))
+                .map(|ty| self.resolve_type(ty))
                 .transpose()?;
             func.params.push((param.name.clone(), param_type));
         }
@@ -240,7 +248,7 @@ impl TypeContext {
         Ok(())
     }
 
-    fn analyze_struct_item(&mut self, item: &StructItem) -> Result<TypeId, TypeError> {
+    fn check_struct_item(&mut self, item: &StructItem) -> Result<TypeId, TypeError> {
         let StructItem { name, fields } = item;
 
         let type_id = self.name_to_id.get(name).unwrap();
@@ -266,7 +274,7 @@ impl TypeContext {
         Ok(*type_id)
     }
 
-    fn analyze_enum_item(&mut self, item: &EnumItem) -> Result<TypeId, TypeError> {
+    fn check_enum_item(&mut self, item: &EnumItem) -> Result<TypeId, TypeError> {
         let EnumItem { name, variants } = item;
 
         let type_id = self.name_to_id.get(name).unwrap();
@@ -278,7 +286,7 @@ impl TypeContext {
 
             let variant_type = variant
                 .as_ref()
-                .map(|ty| self.resolve_type(&ty))
+                .map(|ty| self.resolve_type(ty))
                 .transpose()?;
 
             enum_variants.push((name.to_string(), variant_type));
@@ -374,7 +382,7 @@ impl<'a> TypeChecker<'a> {
         }
 
         for item in &program.stmts {
-            self.check_statement(&item)?;
+            self.check_statement(item)?;
         }
         Ok(())
     }
@@ -388,7 +396,7 @@ impl<'a> TypeChecker<'a> {
             Statement::For(for_stmt) => self.check_for_statement(for_stmt),
             Statement::Loop(loop_stmt) => self.check_loop_statement(loop_stmt),
             Statement::Return(return_stmt) => self.check_return_statement(return_stmt),
-            Statement::Expression(expr) => self.analyze_expression(expr).map(|_| ()),
+            Statement::Expression(expr) => self.check_expression(expr).map(|_| ()),
             Statement::Empty => Ok(()),
             Statement::Break => Ok(()),
             Statement::Continue => Ok(()),
@@ -410,7 +418,7 @@ impl<'a> TypeChecker<'a> {
 
     // 新增方法：检查条件语句
     fn check_if_statement(&mut self, if_stmt: &IfStatement) -> Result<(), TypeError> {
-        let condition_type = self.analyze_expression(&if_stmt.condition)?;
+        let condition_type = self.check_expression(&if_stmt.condition)?;
 
         if condition_type != Type::Boolean && condition_type != Type::Any {
             return Err(ErrKind::TypeMismatch {
@@ -429,7 +437,7 @@ impl<'a> TypeChecker<'a> {
 
     // 新增方法：检查循环语句
     fn check_while_statement(&mut self, while_stmt: &WhileStatement) -> Result<(), TypeError> {
-        let condition_type = self.analyze_expression(&while_stmt.condition)?;
+        let condition_type = self.check_expression(&while_stmt.condition)?;
 
         if condition_type != Type::Boolean && condition_type != Type::Any {
             return Err(ErrKind::TypeMismatch {
@@ -445,9 +453,27 @@ impl<'a> TypeChecker<'a> {
 
     // 新增方法：检查 for 循环语句
     fn check_for_statement(&mut self, for_stmt: &ForStatement) -> Result<(), TypeError> {
-        self.analyze_expression(&for_stmt.iterable)?;
+        self.check_expression(&for_stmt.iterable)?;
+        self.check_pattern(&for_stmt.pat)?;
         self.check_block_statement(&for_stmt.body)?;
         Ok(())
+    }
+
+    fn check_pattern(&mut self, pattern: &Pattern) -> Result<(), TypeError> {
+        match pattern {
+            Pattern::Identifier(identifier) => {
+                self.symbols.insert(identifier.name(), Type::Any);
+                Ok(())
+            }
+            Pattern::Tuple(tuple) => {
+                for pattern in tuple {
+                    self.check_pattern(pattern)?;
+                }
+                Ok(())
+            }
+            Pattern::Wildcard => Ok(()),
+            Pattern::Literal(literal) => Ok(()),
+        }
     }
 
     // 新增方法：检查无限循环语句
@@ -459,7 +485,7 @@ impl<'a> TypeChecker<'a> {
     // 新增方法：检查返回语句
     fn check_return_statement(&mut self, return_stmt: &ReturnStatement) -> Result<(), TypeError> {
         if let Some(expr) = &return_stmt.value {
-            let return_ty = self.analyze_expression(expr)?;
+            let return_ty = self.check_expression(expr)?;
 
             if let Some(expected_ty) = &self.current_function_return_type {
                 if return_ty != *expected_ty {
@@ -490,7 +516,7 @@ impl<'a> TypeChecker<'a> {
 
         for param in &func_item.params {
             let param_type = match param.ty.as_ref() {
-                Some(ty) => self.type_cx.resolve_type(&ty)?,
+                Some(ty) => self.type_cx.resolve_type(ty)?,
                 None => Type::Any,
             };
 
@@ -513,78 +539,86 @@ impl<'a> TypeChecker<'a> {
     }
 
     fn check_let_statement(&mut self, let_stmt: &LetStatement) -> Result<(), TypeError> {
-        let ty = let_stmt
+        let decl_ty = let_stmt
             .ty
             .as_ref()
-            .map(|ty| self.type_cx.resolve_type(&ty))
+            .map(|ty| self.type_cx.resolve_type(ty))
             .transpose()?;
 
-        if let Some(expr) = let_stmt.value.as_ref() {
-            let value_type = self.analyze_expression(expr)?;
-            if ty.is_some() && (ty.as_ref() != Some(&value_type)) {
-                return Err(ErrKind::TypeMismatch {
-                    expected: ty.unwrap(),
-                    actual: value_type,
+        let value_ty = let_stmt
+            .value
+            .as_ref()
+            .map(|expr| self.check_expression(expr))
+            .transpose()?;
+
+        let ty = match (decl_ty, value_ty) {
+            (Some(decl_ty), Some(value_ty)) => {
+                if decl_ty != value_ty {
+                    return Err(ErrKind::TypeMismatch {
+                        expected: decl_ty,
+                        actual: value_ty,
+                    }
+                    .with_span(let_stmt.value.as_ref().unwrap().span));
+                } else {
+                    decl_ty
                 }
-                .with_span(expr.span));
             }
-        }
+            (Some(decl_ty), None) => decl_ty,
+            (None, Some(value_ty)) => value_ty,
+            (None, None) => Type::Any,
+        };
+
+        self.symbols.insert(&let_stmt.name, ty);
 
         Ok(())
     }
 
-    fn analyze_expression(&mut self, expr: &ExpressionNode) -> Result<Type, TypeError> {
+    fn check_expression(&mut self, expr: &ExpressionNode) -> Result<Type, TypeError> {
         let ret = match &expr.node {
-            Expression::Literal(lit) => self.analyze_literal(lit),
-            Expression::Identifier(id) => self.analyze_identifier(id),
-            Expression::Binary(bin) => self.analyze_binary(bin),
-            Expression::Prefix(prefix) => self.analyze_prefix(prefix),
-            Expression::Call(call) => self.analyze_call(call),
+            Expression::Literal(lit) => self.check_literal(lit),
+            Expression::Identifier(id) => self.check_identifier(id),
+            Expression::Binary(bin) => self.check_binary(bin),
+            Expression::Prefix(prefix) => self.check_prefix(prefix),
+            Expression::Call(call) => self.check_call(call),
             Expression::Environment(env) => Ok(Type::String),
-            Expression::Path(path) => self.analyze_path(path),
-            Expression::Tuple(tuple) => self.analyze_tuple(tuple),
-            Expression::Array(arr) => self.analyze_array(arr),
+            Expression::Path(path) => self.check_path(path),
+            Expression::Tuple(tuple) => self.check_tuple(tuple),
+            Expression::Array(arr) => self.check_array(arr),
             Expression::Map(map) => Ok(Type::Any), // 暂定Map类型为Any
-            Expression::Closure(closure) => self.analyze_closure(closure),
+            Expression::Closure(closure) => self.check_closure(closure),
             Expression::Range(range) => Ok(Type::Any), // 暂定Range类型为Any
-            Expression::Slice(slice) => self.analyze_slice(slice),
-            Expression::Assign(assign) => self.analyze_assign(assign),
-            Expression::IndexGet(index) => self.analyze_index_get(index),
-            Expression::IndexSet(index) => self.analyze_index_set(index),
-            Expression::PropertyGet(prop) => self.analyze_property_get(prop),
-            Expression::PropertySet(prop) => self.analyze_property_set(prop),
-            Expression::CallMethod(call) => self.analyze_call_method(call),
-            Expression::StructExpr(struct_) => self.analyze_struct_expr(struct_),
-            Expression::Await(expr) => self.analyze_expression(expr),
-            Expression::Try(expr) => self.analyze_expression(expr),
+            Expression::Slice(slice) => self.check_slice(slice),
+            Expression::Assign(assign) => self.check_assign(assign),
+            Expression::IndexGet(index) => self.check_index_get(index),
+            Expression::IndexSet(index) => self.check_index_set(index),
+            Expression::PropertyGet(prop) => self.check_property_get(prop),
+            Expression::PropertySet(prop) => self.check_property_set(prop),
+            Expression::CallMethod(call) => self.check_call_method(call),
+            Expression::StructExpr(struct_) => self.check_struct_expr(struct_),
+            Expression::Await(expr) => self.check_expression(expr),
+            Expression::Try(expr) => self.check_expression(expr),
             // _ => Err(ErrKind::Message(format!("Unsupported expression: {:?}", expr.node)).into()),
         };
 
-        ret.map_err(|err| {
-            if !err.span.is_empty() {
-                return err.with_span(expr.span);
-            } else {
-                err
-            }
-        })
+        ret.map_err(|err| err.with_span(expr.span))
     }
 
-    fn analyze_path(&self, path: &PathExpression) -> Result<Type, TypeError> {
+    fn check_path(&self, path: &PathExpression) -> Result<Type, TypeError> {
         // 路径表达式类型解析逻辑
         Ok(Type::Any) // 暂定返回Any类型
     }
 
-    fn analyze_tuple(&mut self, tuple: &TupleExpression) -> Result<Type, TypeError> {
+    fn check_tuple(&mut self, tuple: &TupleExpression) -> Result<Type, TypeError> {
         // 元组类型解析逻辑
         Ok(Type::Tuple)
     }
 
-    fn analyze_array(&mut self, arr: &ArrayExpression) -> Result<Type, TypeError> {
+    fn check_array(&mut self, arr: &ArrayExpression) -> Result<Type, TypeError> {
         // 数组类型解析逻辑
         Ok(Type::Array)
     }
 
-    fn analyze_closure(&mut self, closure: &ClosureExpression) -> Result<Type, TypeError> {
+    fn check_closure(&mut self, closure: &ClosureExpression) -> Result<Type, TypeError> {
         // // 闭包类型解析逻辑
         // Ok(Type::Function(Box::new(FunctionDef {
         //     name: "".to_string(),
@@ -595,63 +629,60 @@ impl<'a> TypeChecker<'a> {
         Ok(Type::Any) // 临时返回 Any 类型
     }
 
-    fn analyze_slice(&mut self, slice: &SliceExpression) -> Result<Type, TypeError> {
+    fn check_slice(&mut self, slice: &SliceExpression) -> Result<Type, TypeError> {
         // 切片类型解析逻辑
         Ok(Type::Array)
     }
 
-    fn analyze_assign(&mut self, assign: &AssignExpression) -> Result<Type, TypeError> {
+    fn check_assign(&mut self, assign: &AssignExpression) -> Result<Type, TypeError> {
         // 赋值表达式类型解析逻辑
-        self.analyze_expression(&assign.value)
+        self.check_expression(&assign.value)
     }
 
-    fn analyze_index_get(&mut self, index: &IndexGetExpression) -> Result<Type, TypeError> {
+    fn check_index_get(&mut self, index: &IndexGetExpression) -> Result<Type, TypeError> {
         // 索引获取类型解析逻辑
         Ok(Type::Any) // 暂定返回Any类型
     }
 
-    fn analyze_index_set(&mut self, index: &IndexSetExpression) -> Result<Type, TypeError> {
+    fn check_index_set(&mut self, index: &IndexSetExpression) -> Result<Type, TypeError> {
         // 索引设置类型解析逻辑
-        self.analyze_expression(&index.value)
+        self.check_expression(&index.value)
     }
 
-    fn analyze_property_get(&mut self, prop: &PropertyGetExpression) -> Result<Type, TypeError> {
+    fn check_property_get(&mut self, prop: &PropertyGetExpression) -> Result<Type, TypeError> {
         // 属性获取类型解析逻辑
         Ok(Type::Any) // 暂定返回Any类型
     }
 
-    fn analyze_property_set(&mut self, prop: &PropertySetExpression) -> Result<Type, TypeError> {
+    fn check_property_set(&mut self, prop: &PropertySetExpression) -> Result<Type, TypeError> {
         // 属性设置类型解析逻辑
-        self.analyze_expression(&prop.value)
+        self.check_expression(&prop.value)
     }
 
-    fn analyze_call_method(&mut self, call: &CallMethodExpression) -> Result<Type, TypeError> {
+    fn check_call_method(&mut self, call: &CallMethodExpression) -> Result<Type, TypeError> {
         // 调用方法类型解析逻辑
         Ok(Type::Any) // 暂定返回Any类型
     }
 
-    fn analyze_struct_expr(&mut self, struct_expr: &StructExpression) -> Result<Type, TypeError> {
-        match self.type_cx.get_type_def(&struct_expr.name.node()) {
+    fn check_struct_expr(&mut self, struct_expr: &StructExpression) -> Result<Type, TypeError> {
+        match self.type_cx.get_type_def(struct_expr.name.node()) {
             Some(TypeDef::Struct(struct_def)) => {
                 for field in &struct_expr.fields {
-                    let field_type = self.analyze_expression(&field.value)?;
-                    match struct_def.fields.get(&field.name.node) {
-                        Some(expected_type) => {
-                            if field_type != *expected_type {
-                                return Err(TypeError::new(
-                                    field.value.span(),
-                                    ErrKind::Message(format!(
-                                        "Expected type {:?} for field {:?}, found {:?}",
-                                        expected_type, field.name, field_type
-                                    )),
-                                ));
-                            }
+                    let field_type = self.check_expression(&field.value)?;
+                    if let Some(expected_type) = struct_def.fields.get(&field.name.node) {
+                        if field_type != *expected_type && field_type != Type::Any {
+                            return Err(TypeError::new(
+                                field.value.span(),
+                                ErrKind::Message(format!(
+                                    "Expected type {:?} for field {:?}, found {:?}",
+                                    expected_type, field.name, field_type
+                                )),
+                            ));
                         }
-                        None => {}
                     }
                 }
 
-                Ok(self.type_cx.get_type(&struct_expr.name.node()).unwrap())
+                Ok(self.type_cx.get_type(struct_expr.name.node()).unwrap())
             }
             Some(ty) => Err(TypeError::new(
                 struct_expr.name.span(),
@@ -661,7 +692,7 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    fn analyze_literal(&self, lit: &LiteralExpression) -> Result<Type, TypeError> {
+    fn check_literal(&self, lit: &LiteralExpression) -> Result<Type, TypeError> {
         match lit {
             LiteralExpression::Null => Ok(Type::Any),
             LiteralExpression::Boolean(_) => Ok(Type::Boolean),
@@ -672,16 +703,16 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    fn analyze_identifier(&self, id: &IdentifierExpression) -> Result<Type, TypeError> {
-        match self.symbols.lookup(&id.0) {
+    fn check_identifier(&self, ident: &IdentifierExpression) -> Result<Type, TypeError> {
+        match self.symbols.lookup(ident.name()) {
             Some(ty) => Ok(ty.clone()),
-            None => Err(ErrKind::Message(format!("Undefined identifier: {}", id.0)).into()),
+            None => Err(ErrKind::Message(format!("Undefined identifier: {}", ident.name())).into()),
         }
     }
 
-    fn analyze_binary(&mut self, bin: &BinaryExpression) -> Result<Type, TypeError> {
-        let lhs_type = self.analyze_expression(&bin.lhs)?;
-        let rhs_type = self.analyze_expression(&bin.rhs)?;
+    fn check_binary(&mut self, bin: &BinaryExpression) -> Result<Type, TypeError> {
+        let lhs_type = self.check_expression(&bin.lhs)?;
+        let rhs_type = self.check_expression(&bin.rhs)?;
 
         // Handle Type::Any as compatible with any type
         if lhs_type == Type::Any || rhs_type == Type::Any {
@@ -700,7 +731,12 @@ impl<'a> TypeChecker<'a> {
                     .into())
                 }
             }
-            BinOp::Equal | BinOp::NotEqual => {
+            BinOp::Equal
+            | BinOp::NotEqual
+            | BinOp::Less
+            | BinOp::LessEqual
+            | BinOp::Greater
+            | BinOp::GreaterEqual => {
                 if lhs_type == rhs_type {
                     Ok(Type::Boolean)
                 } else {
@@ -711,12 +747,34 @@ impl<'a> TypeChecker<'a> {
                     .into())
                 }
             }
+            BinOp::LogicAnd | BinOp::LogicOr => {
+                if lhs_type == Type::Boolean && rhs_type == Type::Boolean {
+                    Ok(Type::Boolean)
+                } else {
+                    Err(ErrKind::Message(format!(
+                        "Type mismatch in logical operation: {:?} and {:?}",
+                        lhs_type, rhs_type
+                    ))
+                    .into())
+                }
+            }
+            BinOp::Range | BinOp::RangeInclusive => {
+                if lhs_type == Type::Integer && rhs_type == Type::Integer {
+                    Ok(Type::Range)
+                } else {
+                    Err(ErrKind::Message(format!(
+                        "Type mismatch in range operation: {:?} and {:?}",
+                        lhs_type, rhs_type
+                    ))
+                    .into())
+                }
+            }
             _ => Err(ErrKind::Message(format!("Unsupported binary operator: {:?}", bin.op)).into()),
         }
     }
 
-    fn analyze_prefix(&mut self, prefix: &PrefixExpression) -> Result<Type, TypeError> {
-        let rhs_type = self.analyze_expression(&prefix.rhs)?;
+    fn check_prefix(&mut self, prefix: &PrefixExpression) -> Result<Type, TypeError> {
+        let rhs_type = self.check_expression(&prefix.rhs)?;
 
         // Handle Type::Any as compatible with any type
         if rhs_type == Type::Any {
@@ -749,8 +807,8 @@ impl<'a> TypeChecker<'a> {
         }
     }
 
-    fn analyze_call(&mut self, call: &CallExpression) -> Result<Type, TypeError> {
-        let func_type = self.analyze_expression(&call.func)?;
+    fn check_call(&mut self, call: &CallExpression) -> Result<Type, TypeError> {
+        let func_type = self.check_expression(&call.func)?;
 
         // Handle Type::Any as compatible with any type
         if func_type == Type::Any {
@@ -771,7 +829,7 @@ impl<'a> TypeChecker<'a> {
 
                 // Check each argument type
                 for (i, (param_name, param_type)) in func_def.params.iter().enumerate() {
-                    let arg_type = self.analyze_expression(&call.args[i])?;
+                    let arg_type = self.check_expression(&call.args[i])?;
                     if let Some(expected_type) = param_type {
                         // Handle Type::Any as compatible with any type
                         if *expected_type != Type::Any && arg_type != *expected_type {

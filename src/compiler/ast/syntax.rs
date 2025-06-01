@@ -1,11 +1,8 @@
 use std::{
-    collections::HashMap,
     fmt,
     io::{self, Error, ErrorKind},
     str::FromStr,
 };
-
-use pest::{RuleType, iterators::Pair};
 
 #[derive(Debug, Clone, PartialEq)]
 pub struct AstNode<T> {
@@ -39,7 +36,7 @@ impl<T> AsMut<T> for AstNode<T> {
     }
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Default)]
 pub struct Span {
     pub start: usize,
     pub end: usize,
@@ -57,8 +54,32 @@ impl Span {
         }
     }
 
+    pub fn is_zero(&self) -> bool {
+        self.start == 0 && self.start == self.end
+    }
+
     pub fn is_empty(&self) -> bool {
         self.start == self.end
+    }
+
+    pub fn line_col(&self, source: &str) -> Option<(usize, usize)> {
+        let mut offset = 0;
+        for (l, line) in source.lines().enumerate() {
+            if self.start < offset + line.len() {
+                let off = self.start - offset;
+                let mut line_off = 0;
+                for (c, char) in line.char_indices() {
+                    if line_off == off {
+                        return Some((l + 1, c));
+                    }
+                    line_off += char.len_utf8();
+                }
+            }
+
+            offset += line.len();
+        }
+
+        None
     }
 }
 
@@ -266,7 +287,7 @@ pub struct SliceExpression {
 #[derive(Debug, Clone, PartialEq)]
 pub enum Pattern {
     Wildcard,
-    Identifier(String),
+    Identifier(IdentifierExpression),
     Literal(LiteralExpression),
     Tuple(Vec<Pattern>),
 }
@@ -395,7 +416,17 @@ pub struct PostfixExpression {
 }
 
 #[derive(Debug, Clone, PartialEq)]
-pub struct IdentifierExpression(pub String);
+pub struct IdentifierExpression(pub AstNode<String>);
+
+impl IdentifierExpression {
+    pub fn new(name: String, span: Span) -> Self {
+        IdentifierExpression(AstNode::new(name, span))
+    }
+
+    pub fn name(&self) -> &str {
+        self.0.node().as_str()
+    }
+}
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum LiteralExpression {

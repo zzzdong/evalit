@@ -9,148 +9,134 @@ mod symbol;
 mod typing;
 
 use std::collections::HashMap;
-use std::path::Path;
 use std::sync::Arc;
 
 use ir::builder::{InstBuilder, IrBuilder};
 use ir::instruction::IrUnit;
 use log::debug;
-use typing::{Type, TypeChecker, TypeContext, TypeError};
+use typing::{TypeChecker, TypeContext, TypeError};
 
 use crate::Environment;
 use crate::bytecode::{Module, Register};
+use crate::compiler::ast::syntax::Span;
+use crate::compiler::symbol::SymbolTable;
 use parser::ParseError;
 
 use codegen::Codegen;
-use lowering::{ASTLower, SymbolTable};
-use semantic::SemanticAnalyzer;
+use lowering::ASTLower;
+use semantic::{SemanticAnalyzer, SemanticError};
 
-pub fn compile(script: &str, env: &crate::Environment) -> Result<Arc<crate::Module>, CompileError> {
+pub fn compile<'i>(
+    script: &'i str,
+    env: &crate::Environment,
+) -> Result<Arc<crate::Module>, CompileError<'i>> {
     Compiler::new().compile(script, env)
 }
 
-#[derive(Debug)]
-pub enum CompileError {
-    Io(std::io::Error),
+#[derive(Debug, Clone, Copy)]
+struct LineCol {
+    line: usize,
+    col: usize,
+}
+
+impl From<(usize, usize)> for LineCol {
+    fn from(value: (usize, usize)) -> Self {
+        Self {
+            line: value.0,
+            col: value.1,
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct CompileError<'i> {
+    kind: ErrorKind,
+    span: &'i str,
+    line_col: LineCol,
+}
+
+impl<'i> CompileError<'i> {
+    pub fn new(input: &'i str, error: ErrorKind) -> Self {
+        let (line_col, span) = match error.line_col(input) {
+            Some(line_col) => {
+                let span = error.span();
+                (line_col, &input[span.start..span.end])
+            }
+            None => (LineCol { line: 0, col: 0 }, &input[0..0]),
+        };
+        Self {
+            kind: error,
+            span,
+            line_col,
+        }
+    }
+}
+
+impl<'i> std::fmt::Display for CompileError<'i> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(
+            f,
+            "Error on {}@{:?}, detail: {:?}",
+            self.span, self.line_col, self.kind
+        )
+    }
+}
+
+impl<'i> std::error::Error for CompileError<'i> {}
+
+#[derive(Debug, Clone)]
+pub enum ErrorKind {
+    // Io(std::io::Error),
     Parse(ParseError),
     Type(TypeError),
-    Semantics(String),
-    UndefinedVariable {
-        name: String,
-    },
-    UnknownType {
-        name: String,
-    },
-    TypeMismatch {
-        expected: Box<Type>,
-        actual: Box<Type>,
-        span: Span,
-    },
-    TypeInference(String),
-    TypeCheck(String),
-    ArgumentCountMismatch {
-        expected: usize,
-        actual: usize,
-    },
-    NotCallable {
-        ty: Type,
-        span: Span,
-    },
-    Unreachable,
-    BreakOutsideLoop {
-        span: Span,
-    },
-    ContinueOutsideLoop {
-        span: Span,
-    },
-    ReturnOutsideFunction {
-        span: Span,
-    },
-    InvalidOperation {
-        message: String,
-    },
+    Semantic(SemanticError),
 }
 
-impl CompileError {
-    pub fn type_mismatch(expected: Type, actual: Type, span: Span) -> Self {
-        CompileError::TypeMismatch {
-            span,
-            expected: Box::new(expected),
-            actual: Box::new(actual),
+impl ErrorKind {
+    fn line_col(&self, input: &str) -> Option<LineCol> {
+        match self {
+            ErrorKind::Parse(ParseError { span, .. }) => span.line_col(input).map(Into::into),
+            ErrorKind::Type(TypeError { span, .. }) => span.line_col(input).map(Into::into),
+            ErrorKind::Semantic(SemanticError { span, .. }) => span.line_col(input).map(Into::into),
+        }
+    }
+
+    fn span(&self) -> Span {
+        match self {
+            ErrorKind::Parse(ParseError { span, .. }) => *span,
+            ErrorKind::Type(TypeError { span, .. }) => *span,
+            ErrorKind::Semantic(SemanticError { span, .. }) => *span,
         }
     }
 }
 
-impl From<std::io::Error> for CompileError {
-    fn from(error: std::io::Error) -> Self {
-        CompileError::Io(error)
-    }
-}
-
-impl From<ParseError> for CompileError {
+impl From<ParseError> for ErrorKind {
     fn from(error: ParseError) -> Self {
-        CompileError::Parse(error)
+        ErrorKind::Parse(error)
     }
 }
 
-impl From<TypeError> for CompileError {
+impl From<TypeError> for ErrorKind {
     fn from(error: TypeError) -> Self {
-        CompileError::Type(error)
+        ErrorKind::Type(error)
     }
 }
 
-impl From<SemanticsError> for CompileError {
-    fn from(error: SemanticsError) -> Self {
-        CompileError::Semantics(error)
+impl From<SemanticError> for ErrorKind {
+    fn from(error: SemanticError) -> Self {
+        ErrorKind::Semantic(error)
     }
 }
 
-impl std::fmt::Display for CompileError {
+impl std::fmt::Display for ErrorKind {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
-            CompileError::Io(error) => write!(f, "IO error: {error}"),
-            CompileError::Parse(error) => write!(f, "Parse error: {error}"),
-            CompileError::Type(error) => write!(f, "Type error: {error:?}"),
-            CompileError::Semantics(message) => write!(f, "Semantics error: {message}"),
-            CompileError::UndefinedVariable { name } => {
-                write!(f, "Undefined variable `{name}`")
-            }
-            CompileError::UnknownType { name } => {
-                write!(f, "Unknow type `{name}`")
-            }
-            CompileError::TypeMismatch {
-                expected,
-                actual,
-                span,
-            } => write!(
-                f,
-                "Type mismatch: expected `{expected:?}`, actual `{actual:?}` at {span:?}"
-            ),
-            CompileError::TypeInference(message) => write!(f, "Type inference error: {message}"),
-            CompileError::TypeCheck(message) => write!(f, "Type check error: {message}"),
-            CompileError::ArgumentCountMismatch { expected, actual } => write!(
-                f,
-                "Argument count mismatch: expected {expected}, actual {actual}"
-            ),
-            CompileError::NotCallable { ty, span } => {
-                write!(f, "Not callable: `{ty:?}` at {span:?}")
-            }
-            CompileError::Unreachable => write!(f, "Unreachable"),
-            CompileError::BreakOutsideLoop { span } => write!(f, "Break outside loop at {span:?}"),
-            CompileError::ContinueOutsideLoop { span } => {
-                write!(f, "Continue outside loop at {span:?}")
-            }
-            CompileError::ReturnOutsideFunction { span } => {
-                write!(f, "Return outside function at {span:?}")
-            }
-            CompileError::InvalidOperation { message } => {
-                write!(f, "Invalid operation, {message}")
-            }
+            ErrorKind::Parse(error) => write!(f, "Parse error: {error}"),
+            ErrorKind::Type(error) => write!(f, "Type error: {error:?}"),
+            ErrorKind::Semantic(error) => write!(f, "Semantic error: {error:?}"),
         }
     }
 }
-
-impl std::error::Error for CompileError {}
 
 pub struct FileId(usize);
 
@@ -169,12 +155,12 @@ impl Context {
         id
     }
 
-    pub fn add_file(&mut self, file: impl AsRef<Path>) -> Result<FileId, CompileError> {
-        let id = FileId(self.sources.len());
-        let content = std::fs::read_to_string(file.as_ref())?;
-        self.sources.push(content);
-        Ok(id)
-    }
+    // pub fn add_file(&mut self, file: impl AsRef<Path>) -> Result<FileId, CompileError> {
+    //     let id = FileId(self.sources.len());
+    //     let content = std::fs::read_to_string(file.as_ref())?;
+    //     self.sources.push(content);
+    //     Ok(id)
+    // }
 
     pub fn get_source(&self, file: FileId) -> Option<&str> {
         self.sources.get(file.0).map(|s| s.as_str())
@@ -194,24 +180,39 @@ impl Compiler {
         Self {}
     }
 
-    pub fn compile(&self, input: &str, env: &Environment) -> Result<Arc<Module>, CompileError> {
+    pub fn compile<'i>(
+        &self,
+        input: &'i str,
+        env: &Environment,
+    ) -> Result<Arc<Module>, CompileError<'i>> {
+        match self.compile_inner(input, env) {
+            Ok(module) => Ok(module),
+            Err(err) => Err(CompileError::new(input, err)),
+        }
+    }
+
+    fn compile_inner(&self, input: &str, env: &Environment) -> Result<Arc<Module>, ErrorKind> {
         // 解析输入
-        let mut ast = parser::parse_file(input)?;
+        let ast = parser::parse_file(input)?;
 
         debug!("AST: {ast:?}");
 
         let mut type_cx = TypeContext::new();
-        type_cx.analyze_type_def(&ast.stmts)?;
+        type_cx.check_type_def(&ast.stmts)?;
 
         // 语义分析
-        let mut checker = SemanticChecker::new(&mut type_cx);
-        checker.check_program(&mut ast, env)?;
+        let mut analyzer = SemanticAnalyzer::new(&type_cx);
+        analyzer.analyze_program(&ast, env)?;
+
+        // 类型检查
+        let mut checker = TypeChecker::new(&type_cx);
+        checker.check_program(&ast, env)?;
 
         // IR生成, AST -> IR
         let mut unit = IrUnit::new();
         let builder: &mut dyn InstBuilder = &mut IrBuilder::new(&mut unit);
         let mut lower = ASTLower::new(builder, SymbolTable::new(), env, &type_cx);
-        lower.lower_program(ast)?;
+        lower.lower_program(ast);
 
         // code generation, IR -> bytecode
         let mut codegen = Codegen::new(&Register::general());

@@ -1,10 +1,9 @@
 use std::collections::HashMap;
-use std::{cell::RefCell, collections::BTreeMap, rc::Rc};
 
-use super::CompileError;
 use super::ast::syntax::*;
 use super::ir::{builder::*, instruction::*};
 use super::typing::{TypeContext, TypeDef};
+use crate::compiler::symbol::SymbolTable;
 use crate::compiler::typing::{FunctionDef, StructDef};
 use crate::{
     Environment,
@@ -29,7 +28,7 @@ impl LoopContext {
 pub struct ASTLower<'a> {
     builder: &'a mut dyn InstBuilder,
     env: &'a Environment,
-    symbols: SymbolTable,
+    symbols: SymbolTable<Variable>,
     loop_contexts: Vec<LoopContext>,
     type_cx: &'a TypeContext,
 }
@@ -37,7 +36,7 @@ pub struct ASTLower<'a> {
 impl<'a> ASTLower<'a> {
     pub fn new(
         builder: &'a mut dyn InstBuilder,
-        symbols: SymbolTable,
+        symbols: SymbolTable<Variable>,
         env: &'a Environment,
         type_cx: &'a TypeContext,
     ) -> Self {
@@ -50,7 +49,7 @@ impl<'a> ASTLower<'a> {
         }
     }
 
-    pub fn lower_program(&mut self, prog: Program) -> Result<IrUnit, CompileError> {
+    pub fn lower_program(&mut self, prog: Program) -> IrUnit {
         let mut unit = IrUnit::new();
 
         let builder: &mut dyn InstBuilder = &mut IrBuilder::new(&mut unit);
@@ -86,7 +85,7 @@ impl<'a> ASTLower<'a> {
         // FIXME: This is a hack to make block not empty.
         self.builder.make_halt();
 
-        Ok(unit)
+        unit
     }
 
     fn lower_statement(&mut self, statement: StatementNode) {
@@ -139,7 +138,7 @@ impl<'a> ASTLower<'a> {
             self.builder.assign(dst, value);
         }
 
-        self.symbols.define(&name, Variable::new(dst));
+        self.symbols.insert(&name, Variable::new(dst));
     }
 
     fn lower_item_stmt(&mut self, item: ItemStatement) {
@@ -186,7 +185,7 @@ impl<'a> ASTLower<'a> {
             Pattern::Identifier(ident) => {
                 let dst = self.builder.alloc();
                 self.builder.assign(dst, value);
-                self.symbols.define(&ident, Variable::new(dst));
+                self.symbols.insert(ident.name(), Variable::new(dst));
             }
 
             Pattern::Tuple(pats) => {
@@ -232,19 +231,19 @@ impl<'a> ASTLower<'a> {
 
         // loop body, get next value
         self.builder.switch_to_block(loop_body);
-        let new_symbols = self.symbols.new_scope();
-        let old_symbols = std::mem::replace(&mut self.symbols, new_symbols);
+
+        self.symbols.enter_scope();
         let next = self.builder.call_property(next, "unwrap", vec![]);
         self.lower_pattern(pat, next);
 
         self.lower_block(body);
 
-        self.symbols = old_symbols;
+        self.symbols.leave_scope();
 
         self.builder.br(loop_header);
 
         // done loop
-        self.level_loop_context();
+        self.leave_loop_context();
         self.builder.switch_to_block(after_blk);
     }
 
@@ -258,16 +257,13 @@ impl<'a> ASTLower<'a> {
 
         self.builder.br(loop_body);
         self.builder.switch_to_block(loop_body);
-        let new_symbols = self.symbols.new_scope();
-        let old_symbols = std::mem::replace(&mut self.symbols, new_symbols);
 
         self.lower_block(body);
 
         self.builder.br(loop_body);
 
         // done loop
-        self.level_loop_context();
-        self.symbols = old_symbols;
+        self.leave_loop_context();
         self.builder.switch_to_block(after_blk);
     }
 
@@ -287,15 +283,11 @@ impl<'a> ASTLower<'a> {
         self.builder.br_if(cond, body_blk, after_blk);
 
         self.builder.switch_to_block(body_blk);
-        let new_symbols = self.symbols.new_scope();
-        let old_symbols = std::mem::replace(&mut self.symbols, new_symbols);
 
         self.lower_block(body);
 
         self.builder.br(cond_blk);
 
-        self.level_loop_context();
-        self.symbols = old_symbols;
         self.builder.switch_to_block(after_blk);
     }
 
@@ -308,12 +300,13 @@ impl<'a> ASTLower<'a> {
     }
 
     fn lower_block(&mut self, block: BlockStatement) {
-        let new_symbols = self.symbols.new_scope();
-        let old_symbols = std::mem::replace(&mut self.symbols, new_symbols);
+        self.symbols.enter_scope();
+
         for statement in block.0 {
             self.lower_statement(statement);
         }
-        self.symbols = old_symbols;
+
+        self.symbols.leave_scope();
     }
 
     fn lower_function_item(&mut self, fn_item: FunctionItem) -> Value {
@@ -322,7 +315,7 @@ impl<'a> ASTLower<'a> {
         } = fn_item;
 
         let value = self.lower_function(Some(name.to_string()), params, body);
-        self.symbols.define(name, Variable::new(value));
+        self.symbols.insert(name, Variable::new(value));
         value
     }
 
@@ -345,7 +338,7 @@ impl<'a> ASTLower<'a> {
 
         let mut func = IrFunction::new(func_id, func_sig);
 
-        let symbols = self.symbols.new_scope();
+        let symbols = self.symbols.clone();
 
         let mut func_builder = FunctionBuilder::new(self.builder.module_mut(), &mut func);
 
@@ -360,7 +353,7 @@ impl<'a> ASTLower<'a> {
 
             func_lower
                 .symbols
-                .define(param.name.as_str(), Variable::new(arg));
+                .insert(param.name.as_str(), Variable::new(arg));
         }
 
         func_lower.lower_block(body);
@@ -464,7 +457,7 @@ impl<'a> ASTLower<'a> {
 
         let decl = self
             .type_cx
-            .get_type_def(&name.node())
+            .get_type_def(name.node())
             .expect("struct not found");
         if let TypeDef::Struct(StructDef {
             fields: decl_fields,
@@ -512,19 +505,20 @@ impl<'a> ASTLower<'a> {
             .collect();
 
         match func.node {
-            Expression::Identifier(IdentifierExpression(ref ident)) => {
-                match self.builder.module().find_function(ident) {
+            Expression::Identifier(ident) => {
+                match self.builder.module().find_function(ident.name()) {
                     Some(func) => self.builder.call_function(func.id, args),
-                    None => match self.symbols.get(ident) {
+                    None => match self.symbols.lookup(ident.name()) {
                         Some(var) => self.builder.make_call(var.0, args),
-                        None => match self.env.get(ident) {
+                        None => match self.env.get(ident.name()) {
                             Some(EnvVariable::Function(_)) => {
-                                let callable =
-                                    self.builder.load_external_variable(ident.to_string());
+                                let callable = self
+                                    .builder
+                                    .load_external_variable(ident.name().to_string());
                                 self.builder.make_call_native(callable, args)
                             }
                             _ => {
-                                panic!("unknown identifier: {ident}");
+                                panic!("unknown identifier: {}", ident.name());
                             }
                         },
                     },
@@ -624,15 +618,15 @@ impl<'a> ASTLower<'a> {
     }
 
     fn lower_identifier(&mut self, identifier: IdentifierExpression) -> Value {
-        match self.symbols.get(&identifier.0) {
-            Some(Variable(addr)) => addr,
+        match self.symbols.lookup(identifier.name()) {
+            Some(Variable(addr)) => *addr,
             None => {
-                if let Some(_env) = self.env.get(&identifier.0) {
+                if let Some(_env) = self.env.get(identifier.name()) {
                     return self
                         .builder
-                        .load_external_variable(identifier.0.to_string());
+                        .load_external_variable(identifier.name().to_string());
                 }
-                panic!("Undefined identifier: {}", identifier.0)
+                panic!("Undefined identifier: {}", identifier.name())
             }
         }
     }
@@ -707,7 +701,7 @@ impl<'a> ASTLower<'a> {
             .push(LoopContext::new(break_point, continue_point));
     }
 
-    fn level_loop_context(&mut self) {
+    fn leave_loop_context(&mut self) {
         self.loop_contexts.pop().expect("not in loop context");
     }
 }
@@ -721,41 +715,41 @@ impl Variable {
     }
 }
 
-#[derive(Debug, Clone)]
-pub struct SymbolNode {
-    parent: Option<SymbolTable>,
-    symbols: BTreeMap<String, Variable>,
-}
+// #[derive(Debug, Clone)]
+// pub struct SymbolNode {
+//     parent: Option<SymbolTable>,
+//     symbols: BTreeMap<String, Variable>,
+// }
 
-#[derive(Debug, Clone)]
-pub struct SymbolTable(Rc<RefCell<SymbolNode>>);
+// #[derive(Debug, Clone)]
+// pub struct SymbolTable(Rc<RefCell<SymbolNode>>);
 
-impl SymbolTable {
-    pub fn new() -> Self {
-        SymbolTable(Rc::new(RefCell::new(SymbolNode {
-            parent: None,
-            symbols: BTreeMap::new(),
-        })))
-    }
+// impl SymbolTable {
+//     pub fn new() -> Self {
+//         SymbolTable(Rc::new(RefCell::new(SymbolNode {
+//             parent: None,
+//             symbols: BTreeMap::new(),
+//         })))
+//     }
 
-    fn get(&self, name: &str) -> Option<Variable> {
-        if let Some(value) = self.0.borrow().symbols.get(name) {
-            return Some(*value);
-        }
-        if let Some(parent) = &self.0.borrow().parent {
-            return parent.get(name);
-        }
-        None
-    }
+//     fn get(&self, name: &str) -> Option<Variable> {
+//         if let Some(value) = self.0.borrow().symbols.get(name) {
+//             return Some(*value);
+//         }
+//         if let Some(parent) = &self.0.borrow().parent {
+//             return parent.get(name);
+//         }
+//         None
+//     }
 
-    fn define(&mut self, name: impl Into<String>, value: Variable) {
-        self.0.borrow_mut().symbols.insert(name.into(), value);
-    }
+//     fn insert(&mut self, name: impl Into<String>, value: Variable) {
+//         self.0.borrow_mut().symbols.insert(name.into(), value);
+//     }
 
-    fn new_scope(&self) -> SymbolTable {
-        SymbolTable(Rc::new(RefCell::new(SymbolNode {
-            parent: Some(self.clone()),
-            symbols: BTreeMap::new(),
-        })))
-    }
-}
+//     fn new_scope(&self) -> SymbolTable {
+//         SymbolTable(Rc::new(RefCell::new(SymbolNode {
+//             parent: Some(self.clone()),
+//             symbols: BTreeMap::new(),
+//         })))
+//     }
+// }

@@ -8,29 +8,44 @@ use pest::{
 
 use super::ast::syntax::*;
 
-#[derive(Debug)]
-pub struct ParseError(Box<pest::error::Error<Rule>>);
+#[derive(Debug, Clone)]
+pub struct ParseError {
+    pub error: Box<pest::error::Error<Rule>>,
+    pub span: Span,
+}
 
 impl ParseError {
     pub fn with_message(span: pest::Span<'_>, message: impl ToString) -> Self {
-        Self(Box::new(pest::error::Error::new_from_span(
+        let error = pest::error::Error::<Rule>::new_from_span(
             pest::error::ErrorVariant::CustomError {
                 message: message.to_string(),
             },
             span,
-        )))
+        );
+        ParseError {
+            error: Box::new(error),
+            span: Span::new(span.start(), span.end()),
+        }
     }
 }
 
 impl std::fmt::Display for ParseError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(f, "{}", self.0)
+        write!(f, "{}", self.error)
     }
 }
 
 impl From<pest::error::Error<Rule>> for ParseError {
     fn from(e: pest::error::Error<Rule>) -> Self {
-        Self(Box::new(e))
+        let span = match e.location {
+            pest::error::InputLocation::Pos(pos) => Span::new(pos, pos + 1),
+            pest::error::InputLocation::Span(span) => Span::new(span.0, span.1),
+        };
+
+        Self {
+            error: Box::new(e),
+            span,
+        }
     }
 }
 
@@ -357,7 +372,7 @@ fn parse_pattern(pair: Pair<Rule>) -> Result<Pattern> {
 
     match pat.as_rule() {
         Rule::wildcard_pattern => Ok(Pattern::Wildcard),
-        Rule::identifier => Ok(Pattern::Identifier(pat.as_str().to_string())),
+        Rule::identifier => Ok(Pattern::Identifier(parse_identifier(pat)?)),
         Rule::literal => Ok(Pattern::Literal(parse_literal(pat)?)),
         Rule::tuple_pattern => {
             let mut tuple = Vec::new();
@@ -764,7 +779,10 @@ fn parse_identifier(pair: Pair<Rule>) -> Result<IdentifierExpression> {
     let mut pairs = pair.into_inner();
     let name = pairs.next().unwrap();
 
-    Ok(IdentifierExpression(name.as_str().to_string()))
+    Ok(IdentifierExpression(AstNode::new(
+        name.as_str().to_string(),
+        Span::from_pair(&name),
+    )))
 }
 
 fn unescape_string(s: &str) -> String {
@@ -927,6 +945,14 @@ fn parse_path_segment(pair: Pair<Rule>) -> Result<PathSeg> {
 mod test {
     use super::*;
 
+    fn check_identifier_expression(input: &ExpressionNode, expected: &str) {
+        if let Expression::Identifier(identifier) = input.node() {
+            assert_eq!(identifier.name(), expected);
+        } else {
+            panic!("Expected Identifier expression");
+        }
+    }
+
     #[test]
     fn test_literal_expression() {
         let input = r#"1"#;
@@ -951,34 +977,22 @@ mod test {
         let input = r#"foo"#;
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
-        assert_eq!(
-            expression.node,
-            Expression::Identifier(IdentifierExpression("foo".to_string()))
-        );
+        check_identifier_expression(&expression, "foo");
 
         let input = r#"foo_bar"#;
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
-        assert_eq!(
-            expression.node,
-            Expression::Identifier(IdentifierExpression("foo_bar".to_string()))
-        );
+        check_identifier_expression(&expression, "foo_bar");
 
         let input = r#"_foo"#;
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
-        assert_eq!(
-            expression.node,
-            Expression::Identifier(IdentifierExpression("_foo".to_string()))
-        );
+        check_identifier_expression(&expression, "_foo");
 
         let input = r#"_"#;
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
-        assert_eq!(
-            expression.node,
-            Expression::Identifier(IdentifierExpression("_".to_string()))
-        );
+        check_identifier_expression(&expression, "_");
     }
 
     #[test]
@@ -1085,10 +1099,7 @@ mod test {
                 if let Some(value) = &return_stmt.value {
                     if let Expression::Binary(binary) = &value.node {
                         assert_eq!(binary.op, BinOp::Add);
-                        assert_eq!(
-                            binary.lhs.node,
-                            Expression::Identifier(IdentifierExpression("x".to_string()))
-                        );
+                        check_identifier_expression(&binary.lhs, "x");
                         assert_eq!(
                             binary.rhs.node,
                             Expression::Literal(LiteralExpression::Integer(1))
@@ -1113,10 +1124,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::IndexGet(index) = expression.node {
-            assert_eq!(
-                index.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&index.object, "a");
             assert_eq!(
                 index.index.node,
                 Expression::Literal(LiteralExpression::Integer(1))
@@ -1133,10 +1141,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Slice(slice) = expression.node {
-            assert_eq!(
-                slice.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&slice.object, "a");
             let range = &slice.range.node;
             assert_eq!(range.op, BinOp::Range);
             assert_eq!(
@@ -1156,10 +1161,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Slice(slice) = expression.node {
-            assert_eq!(
-                slice.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&slice.object, "a");
             let range = &slice.range.node;
             assert_eq!(range.op, BinOp::RangeInclusive);
             assert_eq!(
@@ -1179,10 +1181,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Slice(slice) = expression.node {
-            assert_eq!(
-                slice.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&slice.object, "a");
             let range = &slice.range.node;
             assert_eq!(range.op, BinOp::Range);
             assert!(range.begin.is_none());
@@ -1196,10 +1195,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Slice(slice) = expression.node {
-            assert_eq!(
-                slice.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&slice.object, "a");
             let range = &slice.range.node;
             assert_eq!(range.op, BinOp::Range);
             assert_eq!(
@@ -1216,10 +1212,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Slice(slice) = expression.node {
-            assert_eq!(
-                slice.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&slice.object, "a");
             let range = &slice.range.node;
             assert_eq!(range.op, BinOp::RangeInclusive);
             assert!(range.begin.is_none());
@@ -1238,10 +1231,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Call(call) = expression.node {
-            assert_eq!(
-                call.func.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&call.func, "a");
             assert_eq!(call.args.len(), 3);
             assert_eq!(
                 call.args[0].node,
@@ -1263,10 +1253,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Call(call) = expression.node {
-            assert_eq!(
-                call.func.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&call.func, "a");
             assert_eq!(call.args.len(), 0);
         } else {
             panic!("Expected call expression");
@@ -1279,10 +1266,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Try(expr) = expression.node {
-            assert_eq!(
-                expr.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&expr, "a");
         } else {
             panic!("Expected try expression");
         }
@@ -1294,10 +1278,7 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Await(expr) = expression.node {
-            assert_eq!(
-                expr.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&expr, "a");
         } else {
             panic!("Expected await expression");
         }
@@ -1323,10 +1304,7 @@ mod test {
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Prefix(prefix) = expression.node {
             assert_eq!(prefix.op, PrefixOp::Not);
-            assert_eq!(
-                prefix.rhs.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&prefix.rhs, "a");
         } else {
             panic!("Expected prefix expression");
         }
@@ -1540,7 +1518,7 @@ mod test {
 
             // 检查第二个变体（值变体）
             assert_eq!(
-                enum_item.variants[0],
+                enum_item.variants[1],
                 EnumVariant {
                     name: "BB".to_string(),
                     variant: Some(TypeExpression::Integer)
@@ -1596,14 +1574,8 @@ mod test {
                 if let Some(value) = &return_stmt.value {
                     if let Expression::Binary(binary) = &value.node {
                         assert_eq!(binary.op, BinOp::Add);
-                        assert_eq!(
-                            binary.lhs.node,
-                            Expression::Identifier(IdentifierExpression("a".to_string()))
-                        );
-                        assert_eq!(
-                            binary.rhs.node,
-                            Expression::Identifier(IdentifierExpression("b".to_string()))
-                        );
+                        check_identifier_expression(&binary.lhs, "a");
+                        check_identifier_expression(&binary.rhs, "b");
                     } else {
                         panic!("Expected binary expression in return value");
                     }
@@ -1678,10 +1650,7 @@ mod test {
             // 检查条件
             if let Expression::Binary(binary) = while_stmt.condition.node {
                 assert_eq!(binary.op, BinOp::Equal);
-                assert_eq!(
-                    binary.lhs.node,
-                    Expression::Identifier(IdentifierExpression("a".to_string()))
-                );
+                check_identifier_expression(&binary.lhs, "a");
                 assert_eq!(
                     binary.rhs.node,
                     Expression::Literal(LiteralExpression::Integer(1))
@@ -1704,7 +1673,12 @@ mod test {
         let statement = parse_statement_input(input).unwrap();
         if let Statement::For(for_stmt) = statement.node {
             // 检查模式
-            assert_eq!(for_stmt.pat, Pattern::Identifier("i".to_string()));
+
+            if let Pattern::Identifier(ident) = for_stmt.pat {
+                assert_eq!(ident.name(), "i");
+            } else {
+                panic!("Expected identifier pattern in for statement");
+            }
 
             // 检查迭代器表达式
             if let Expression::Binary(binary) = for_stmt.iterable.node {
@@ -1737,10 +1711,7 @@ mod test {
             // 检查条件
             if let Expression::Binary(binary) = if_stmt.condition.node {
                 assert_eq!(binary.op, BinOp::Equal);
-                assert_eq!(
-                    binary.lhs.node,
-                    Expression::Identifier(IdentifierExpression("a".to_string()))
-                );
+                check_identifier_expression(&binary.lhs, "a");
                 assert_eq!(
                     binary.rhs.node,
                     Expression::Literal(LiteralExpression::Integer(1))
@@ -1777,10 +1748,7 @@ mod test {
             // 检查条件
             if let Expression::Binary(binary) = if_stmt.condition.node {
                 assert_eq!(binary.op, BinOp::Equal);
-                assert_eq!(
-                    binary.lhs.node,
-                    Expression::Identifier(IdentifierExpression("a".to_string()))
-                );
+                check_identifier_expression(&binary.lhs, "a");
                 assert_eq!(
                     binary.rhs.node,
                     Expression::Literal(LiteralExpression::Integer(2))
@@ -1837,10 +1805,7 @@ mod test {
                 // 检查左侧条件 (a > 0)
                 if let Expression::Binary(left_binary) = binary.lhs.node {
                     assert_eq!(left_binary.op, BinOp::Greater);
-                    assert_eq!(
-                        left_binary.lhs.node,
-                        Expression::Identifier(IdentifierExpression("a".to_string()))
-                    );
+                    check_identifier_expression(&left_binary.lhs, "a");
                     assert_eq!(
                         left_binary.rhs.node,
                         Expression::Literal(LiteralExpression::Integer(0))
@@ -1852,10 +1817,7 @@ mod test {
                 // 检查右侧条件 (b < 10)
                 if let Expression::Binary(right_binary) = binary.rhs.node {
                     assert_eq!(right_binary.op, BinOp::Less);
-                    assert_eq!(
-                        right_binary.lhs.node,
-                        Expression::Identifier(IdentifierExpression("b".to_string()))
-                    );
+                    check_identifier_expression(&right_binary.lhs, "b");
                     assert_eq!(
                         right_binary.rhs.node,
                         Expression::Literal(LiteralExpression::Integer(10))
@@ -1945,10 +1907,7 @@ mod test {
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::PropertyGet(property_get) = expression.node {
             assert_eq!(property_get.property, "b");
-            assert_eq!(
-                property_get.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&property_get.object, "a");
         } else {
             panic!("Expected property get expression");
         }
@@ -1960,10 +1919,7 @@ mod test {
             assert_eq!(property_get.property, "c");
             if let Expression::PropertyGet(inner_property_get) = property_get.object.node {
                 assert_eq!(inner_property_get.property, "b");
-                assert_eq!(
-                    inner_property_get.object.node,
-                    Expression::Identifier(IdentifierExpression("a".to_string()))
-                );
+                check_identifier_expression(&inner_property_get.object, "a");
             } else {
                 panic!("Expected inner member expression");
             }
@@ -1979,10 +1935,7 @@ mod test {
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::PropertySet(property_set) = expression.node {
             assert_eq!(property_set.property, "b");
-            assert_eq!(
-                property_set.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&property_set.object, "a");
             assert_eq!(
                 property_set.value.node,
                 Expression::Literal(LiteralExpression::Integer(1))
@@ -2004,10 +1957,7 @@ mod test {
             value,
         }) = expression.node
         {
-            assert_eq!(
-                object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&object, "a");
             assert_eq!(
                 index.node,
                 Expression::Literal(LiteralExpression::Integer(1))
@@ -2029,10 +1979,7 @@ mod test {
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::CallMethod(call_method) = expression.node {
             assert_eq!(call_method.method, "b");
-            assert_eq!(
-                call_method.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&call_method.object, "a");
             assert_eq!(call_method.args.len(), 2);
             assert_eq!(
                 call_method.args[0].node,
@@ -2055,18 +2002,12 @@ mod test {
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::PropertySet(property_set) = expression.node {
             assert_eq!(property_set.property, "b");
-            assert_eq!(
-                property_set.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&property_set.object, "a");
             if let Expression::Binary(binary) = property_set.value.node {
                 assert_eq!(binary.op, BinOp::Add);
                 if let Expression::PropertyGet(property_get) = binary.lhs.node {
                     assert_eq!(property_get.property, "b");
-                    assert_eq!(
-                        property_get.object.node,
-                        Expression::Identifier(IdentifierExpression("a".to_string()))
-                    );
+                    check_identifier_expression(&property_get.object, "a");
                 } else {
                     panic!("Expected PropertyGet on lhs");
                 }
@@ -2086,16 +2027,10 @@ mod test {
         let pairs = PestParser::parse(Rule::expression, input).unwrap();
         let expression = parse_expression_pairs(pairs).unwrap();
         if let Expression::Assign(assign) = expression.node {
-            assert_eq!(
-                assign.object.node,
-                Expression::Identifier(IdentifierExpression("a".to_string()))
-            );
+            check_identifier_expression(&assign.object, "a");
             if let Expression::Binary(binary) = assign.value.node {
                 assert_eq!(binary.op, BinOp::Add);
-                assert_eq!(
-                    binary.lhs.node,
-                    Expression::Identifier(IdentifierExpression("a".to_string()))
-                );
+                check_identifier_expression(&binary.lhs, "a");
                 assert_eq!(
                     binary.rhs.node,
                     Expression::Literal(LiteralExpression::Integer(1))

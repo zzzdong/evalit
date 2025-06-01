@@ -38,6 +38,14 @@ impl<T> SymbolTable<T> {
     }
 }
 
+impl<T: Clone> Clone for SymbolTable<T> {
+    fn clone(&self) -> Self {
+        SymbolTable {
+            scopes: self.scopes.clone(),
+        }
+    }
+}
+
 #[derive(Debug)]
 struct Scope<T> {
     variables: HashMap<String, T>,
@@ -47,6 +55,14 @@ impl<T> Scope<T> {
     fn new() -> Self {
         Scope {
             variables: HashMap::new(),
+        }
+    }
+}
+
+impl<T: Clone> Clone for Scope<T> {
+    fn clone(&self) -> Self {
+        Scope {
+            variables: self.variables.clone(),
         }
     }
 }
