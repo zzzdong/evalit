@@ -138,35 +138,6 @@ impl std::fmt::Display for ErrorKind {
     }
 }
 
-pub struct FileId(usize);
-
-pub struct Context {
-    sources: Vec<String>,
-}
-
-impl Context {
-    pub fn new() -> Self {
-        Self { sources: vec![] }
-    }
-
-    pub fn add_source(&mut self, source: String) -> FileId {
-        let id = FileId(self.sources.len());
-        self.sources.push(source);
-        id
-    }
-
-    // pub fn add_file(&mut self, file: impl AsRef<Path>) -> Result<FileId, CompileError> {
-    //     let id = FileId(self.sources.len());
-    //     let content = std::fs::read_to_string(file.as_ref())?;
-    //     self.sources.push(content);
-    //     Ok(id)
-    // }
-
-    pub fn get_source(&self, file: FileId) -> Option<&str> {
-        self.sources.get(file.0).map(|s| s.as_str())
-    }
-}
-
 pub struct Compiler {}
 
 impl Default for Compiler {

@@ -1,6 +1,5 @@
 use std::collections::HashMap;
 
-
 use crate::{Environment, compiler::symbol::SymbolTable};
 
 use super::ast::syntax::*;
