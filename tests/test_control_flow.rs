@@ -3,6 +3,30 @@ use evalit::{Environment, Interpreter};
 use utils::init_logger;
 
 #[test]
+fn test_simple_if_statement() {
+    init_logger();
+
+    let env = Environment::new();
+    // 测试if-else语句
+    let script = r#"
+    let x = 1;
+    let y = 0;
+
+    if x > 0 {
+        y = x + 1;
+    } else {
+        y = x - 1;
+    }
+
+    return y;
+    "#;
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
+
+    println!("ret: {:?}", retval);
+    assert_eq!(retval, 2);
+}
+
+#[test]
 fn test_if_statement() {
     init_logger();
 

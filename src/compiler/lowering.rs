@@ -1,8 +1,11 @@
 use std::collections::HashMap;
 
 use super::ast::syntax::*;
-use super::ir::{builder::*, instruction::*};
 use super::typing::{TypeContext, TypeDef};
+use crate::compiler::ir::{
+    BlockId, FuncParam, FuncSignature, FunctionBuilder, InstBuilder, IrBuilder, IrFunction, IrUnit,
+    Name, Value,
+};
 use crate::compiler::symbol::SymbolTable;
 use crate::compiler::typing::{FunctionDef, StructDef};
 use crate::{
@@ -167,13 +170,13 @@ impl<'a> ASTLower<'a> {
 
         self.builder.switch_to_block(then_blk);
         self.lower_block(then_branch);
-        self.builder.br(merge_blk);
+        self.builder.jump(merge_blk);
 
         if let Some(block) = else_branch {
             let else_blk = else_blk.unwrap();
             self.builder.switch_to_block(else_blk);
             self.lower_block(block);
-            self.builder.br(merge_blk);
+            self.builder.jump(merge_blk);
         }
 
         self.builder.switch_to_block(merge_blk);
@@ -210,18 +213,18 @@ impl<'a> ASTLower<'a> {
 
         let loop_init = self.create_block("loop_init");
         let loop_header = self.create_block("loop_header");
-        let loop_body = self.create_block("iterate");
-        let after_blk = self.create_block(None);
+        let loop_body = self.create_block("loop_body");
+        let after_blk = self.create_block("loop_after");
 
         self.enter_loop_context(after_blk, loop_header);
 
-        self.builder.br(loop_init);
+        self.builder.jump(loop_init);
 
         // loop init, create iterator
         self.builder.switch_to_block(loop_init);
         let iterable = self.lower_expression(iterable);
         let iterable = self.builder.make_iterator(iterable);
-        self.builder.br(loop_header);
+        self.builder.jump(loop_header);
 
         // loop header, check if iterator has next
         self.builder.switch_to_block(loop_header);
@@ -240,7 +243,7 @@ impl<'a> ASTLower<'a> {
 
         self.symbols.leave_scope();
 
-        self.builder.br(loop_header);
+        self.builder.jump(loop_header);
 
         // done loop
         self.leave_loop_context();
@@ -250,17 +253,23 @@ impl<'a> ASTLower<'a> {
     fn lower_loop_stmt(&mut self, loop_stmt: LoopStatement) {
         let LoopStatement { body } = loop_stmt;
 
+        let loop_header = self.create_block("loop_header");
         let loop_body = self.create_block("loop_body");
-        let after_blk = self.create_block(None);
+        let after_blk = self.create_block("loop_after");
 
-        self.enter_loop_context(after_blk, loop_body);
+        self.enter_loop_context(after_blk, loop_header);
 
-        self.builder.br(loop_body);
+        self.builder.jump(loop_header);
+        self.builder.seal_block(self.builder.current_block());
+
+        self.builder.switch_to_block(loop_header);
+        self.builder.jump(loop_body);
+        self.builder.seal_block(loop_header);
+
         self.builder.switch_to_block(loop_body);
-
         self.lower_block(body);
-
-        self.builder.br(loop_body);
+        self.builder.jump(loop_header);
+        self.builder.seal_block(loop_body);
 
         // done loop
         self.leave_loop_context();
@@ -276,7 +285,7 @@ impl<'a> ASTLower<'a> {
 
         self.enter_loop_context(after_blk, body_blk);
 
-        self.builder.br(cond_blk);
+        self.builder.jump(cond_blk);
         self.builder.switch_to_block(cond_blk);
 
         let cond = self.lower_expression(condition);
@@ -286,17 +295,19 @@ impl<'a> ASTLower<'a> {
 
         self.lower_block(body);
 
-        self.builder.br(cond_blk);
+        self.builder.jump(cond_blk);
 
         self.builder.switch_to_block(after_blk);
     }
 
     fn lower_break_stmt(&mut self) {
-        self.builder.br(self.loop_context().break_point);
+        self.builder.jump(self.loop_context().break_point);
+        self.builder.seal_block(self.builder.current_block());
     }
 
     fn lower_continue_stmt(&mut self) {
-        self.builder.br(self.loop_context().continue_point);
+        self.builder.jump(self.loop_context().continue_point);
+        self.builder.seal_block(self.builder.current_block());
     }
 
     fn lower_block(&mut self, block: BlockStatement) {

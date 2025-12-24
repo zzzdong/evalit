@@ -33,18 +33,10 @@ impl VM {
 
     #[cfg(feature = "async")]
     pub async fn run(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
-        debug!("===constants===");
-        for (i, constant) in self.program.constants.iter().enumerate() {
-            debug!("{i}: {constant:?}");
-        }
-        debug!("===instructions===");
-        for (i, inst) in self.program.instructions.iter().enumerate() {
-            debug!("{i}: {inst:?}");
-        }
+        debug!("{}", self.program);
 
         while let Some(inst) = self.program.instructions.get(self.state.pc).cloned() {
-            debug!("{}", self.state);
-            debug!("{inst:?}");
+            // debug!("{inst}, {}", self.state);
 
             let Bytecode { opcode, operands } = inst;
 
@@ -86,14 +78,7 @@ impl VM {
 
     #[cfg(not(feature = "async"))]
     pub fn run(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
-        debug!("===constants===");
-        for (i, constant) in self.program.constants.iter().enumerate() {
-            debug!("{i}: {constant:?}");
-        }
-        debug!("===instructions===");
-        for (i, inst) in self.program.instructions.iter().enumerate() {
-            debug!("{i}: {inst:?}");
-        }
+        debug!("{}", self.program);
 
         while let Some(inst) = self.program.instructions.get(self.state.pc).cloned() {
             debug!("{}", self.state);
@@ -183,7 +168,7 @@ impl VM {
                 _ => return Err(RuntimeError::invalid_operand(operands[0])),
             },
 
-            Opcode::Br => {
+            Opcode::Jump => {
                 let offset = operands[0].as_immd();
                 self.state.jump_offset(offset);
                 return Ok(());
@@ -785,7 +770,22 @@ impl fmt::Display for State {
         )?;
         writeln!(f, "Data Stack: {:?}", &self.data_stack[0..self.rsp])?;
         writeln!(f, "Control Stack: {:?}", &self.ctrl_stack[0..self.ctrl_rsp])?;
-        write!(f, "Registers: {:?}", &self.registers[0..20])?;
+        writeln!(f, "=== Registers ===")?;
+        // 每8个寄存器成组打印
+        for chunk in self.registers.chunks(8) {
+            let start = chunk.as_ptr() as usize - self.registers.as_ptr() as usize;
+            let start_idx = start / std::mem::size_of::<ValueRef>();
+            // 第一行：寄存器名称
+            for offset in 0..chunk.len() {
+                write!(f, "r{:<3} ", start_idx + offset)?;
+            }
+            writeln!(f)?;
+            // 第二行：寄存器内容
+            for reg in chunk {
+                write!(f, "{:<15} ", reg)?;
+            }
+            writeln!(f)?;
+        }
         Ok(())
     }
 }

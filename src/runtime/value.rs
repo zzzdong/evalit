@@ -68,11 +68,11 @@ impl ValueRef {
         ValueRef(Arc::new(RwLock::new(value)))
     }
 
-    pub fn value(&self) -> RwLockReadGuard<Value> {
+    pub fn value(&self) -> RwLockReadGuard<'_, Value> {
         self.0.read()
     }
 
-    pub fn value_mut(&self) -> RwLockWriteGuard<Value> {
+    pub fn value_mut(&self) -> RwLockWriteGuard<'_, Value> {
         self.0.write()
     }
 

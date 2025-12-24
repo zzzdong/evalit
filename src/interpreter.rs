@@ -3,7 +3,7 @@ use crate::runtime::{Environment, VM};
 use crate::{Error, Object, RuntimeError, Value};
 
 #[cfg(feature = "async")]
-pub fn eval<T: Object + 'static>(script: &str, env: Environment) -> Result<Option<T>, Error> {
+pub fn eval<T: Object + 'static>(script: &str, env: Environment) -> Result<Option<T>, Error<'_>> {
     let compiler = Compiler::new();
     let module = compiler.compile(script, &env)?;
 
@@ -26,7 +26,7 @@ pub fn eval<T: Object + 'static>(script: &str, env: Environment) -> Result<Optio
 pub async fn eval_async<T: Object + 'static>(
     script: &str,
     env: Environment,
-) -> Result<Option<T>, Error> {
+) -> Result<Option<T>, Error<'_>> {
     let compiler = Compiler::new();
     let module = compiler.compile(script, &env)?;
 
@@ -69,7 +69,7 @@ pub struct Interpreter {}
 
 impl Interpreter {
     #[cfg(feature = "async")]
-    pub fn eval(script: &str, env: Environment) -> Result<Option<Value>, Error> {
+    pub fn eval(script: &str, env: Environment) -> Result<Option<Value>, Error<'_>> {
         let compiler = Compiler::new();
         let module = compiler.compile(script, &env)?;
 

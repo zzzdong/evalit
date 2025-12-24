@@ -1,39 +1,52 @@
-use std::{collections::HashMap, fmt};
+use std::fmt;
 
-use petgraph::graph::{DiGraph, NodeIndex};
+use crate::bytecode::{ConstantId, FunctionId, Opcode, Operand, Primitive};
 
-use crate::bytecode::{Constant, ConstantId, FunctionId, Opcode, Operand, Primitive};
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct BlockId(usize);
 
-macro_rules! id_entity {
-    ($name: ident) => {
-        #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
-        pub struct $name(usize);
+impl BlockId {
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
 
-        impl $name {
-            pub fn new(id: usize) -> Self {
-                Self(id)
-            }
+    pub fn id(&self) -> usize {
+        self.0
+    }
 
-            pub fn id(&self) -> usize {
-                self.0
-            }
-
-            pub fn as_usize(&self) -> usize {
-                self.0
-            }
-        }
-
-        impl fmt::Display for $name {
-            fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-                write!(f, "{}<{}>", std::any::type_name::<$name>(), self.0)
-            }
-        }
-    };
+    pub fn as_usize(&self) -> usize {
+        self.0
+    }
 }
 
-id_entity!(VariableId);
+impl fmt::Display for BlockId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "block{}", self.0)
+    }
+}
 
-id_entity!(BlockId);
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Variable(usize);
+
+impl Variable {
+    pub fn new(id: usize) -> Self {
+        Self(id)
+    }
+
+    pub fn id(&self) -> usize {
+        self.0
+    }
+
+    pub fn as_usize(&self) -> usize {
+        self.0
+    }
+}
+
+impl fmt::Display for Variable {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "v{}", self.0)
+    }
+}
 
 impl Eq for Primitive {}
 
@@ -55,7 +68,7 @@ pub enum Value {
     /// A primitive
     Primitive(Primitive),
     /// A variable
-    Variable(VariableId),
+    Variable(Variable),
     /// A constant
     Constant(ConstantId),
     /// A function
@@ -65,11 +78,18 @@ pub enum Value {
 }
 
 impl Value {
-    pub fn new(id: VariableId) -> Self {
+    pub fn new(id: Variable) -> Self {
         Value::Variable(id)
     }
 
-    pub fn as_variable(&self) -> VariableId {
+    pub fn as_variable(&self) -> Option<Variable> {
+        match self {
+            Value::Variable(id) => Some(*id),
+            _ => None,
+        }
+    }
+
+    pub fn to_variable(&self) -> Variable {
         match self {
             Value::Variable(id) => *id,
             _ => panic!("Variable::id() called on non-variable({self:?})"),
@@ -80,6 +100,13 @@ impl Value {
         match self {
             Value::Block(id) => Some(*id),
             _ => None,
+        }
+    }
+
+    pub fn to_block(self) -> BlockId {
+        match self {
+            Value::Block(id) => id,
+            _ => panic!("Value::to_block() called on non-block({self:?})"),
         }
     }
 
@@ -105,16 +132,19 @@ impl Value {
             _ => panic!("Value::to_operand() called on non-value({self:?})"),
         }
     }
-}
 
+    pub fn is_var(&self) -> bool {
+        matches!(self, Value::Variable(_))
+    }
+}
 impl fmt::Display for Value {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Value::Variable(id) => write!(f, "%{}", id.as_usize()),
-            Value::Function(id) => write!(f, "@function({})", id.as_usize()),
-            Value::Block(id) => write!(f, "@block({})", id.as_usize()),
+            Value::Variable(id) => write!(f, "v{}", id.as_usize()),
+            Value::Function(id) => write!(f, "function{}", id.as_usize()),
+            Value::Block(id) => write!(f, "block{}", id.as_usize()),
             Value::Primitive(prim) => write!(f, "{prim}"),
-            Value::Constant(id) => write!(f, "#{}", id.as_usize()),
+            Value::Constant(id) => write!(f, "const{}", id.as_usize()),
         }
     }
 }
@@ -131,8 +161,8 @@ impl From<ConstantId> for Value {
     }
 }
 
-impl From<VariableId> for Value {
-    fn from(id: VariableId) -> Self {
+impl From<Variable> for Value {
+    fn from(id: Variable) -> Self {
         Value::Variable(id)
     }
 }
@@ -276,9 +306,12 @@ pub enum Instruction {
         condition: Value,
         true_blk: Value,
         false_blk: Value,
+        true_args: Vec<Value>,
+        false_args: Vec<Value>,
     },
-    Br {
+    Jump {
         dst: Value,
+        args: Vec<Value>,
     },
     Halt,
 
@@ -297,7 +330,7 @@ impl Instruction {
             self,
             Instruction::Halt
                 | Instruction::Return { .. }
-                | Instruction::Br { .. }
+                | Instruction::Jump { .. }
                 | Instruction::BrIf { .. }
         )
     }
@@ -312,7 +345,21 @@ impl Instruction {
         )
     }
 
-    pub fn defined_and_used_vars(&self) -> (Vec<Value>, Vec<Value>) {
+    pub fn defined_and_used_vars(&self) -> (Vec<Variable>, Vec<Variable>) {
+        let (defined, used) = self.defined_and_used();
+        (
+            defined
+                .iter()
+                .filter(|v| v.is_var())
+                .map(|v| v.to_variable())
+                .collect::<Vec<_>>(),
+            used.iter()
+                .filter(|v| v.is_var())
+                .map(|v| v.to_variable())
+                .collect::<Vec<_>>(),
+        )
+    }
+    fn defined_and_used(&self) -> (Vec<Value>, Vec<Value>) {
         match self {
             Instruction::LoadArg { dst, .. } => (vec![*dst], vec![]),
             Instruction::LoadConst { dst, .. } => (vec![*dst], vec![]),
@@ -370,8 +417,19 @@ impl Instruction {
                 condition,
                 true_blk,
                 false_blk,
-            } => (vec![], vec![*condition, *true_blk, *false_blk]),
-            Instruction::Br { dst } => (vec![], vec![*dst]),
+                true_args,
+                false_args,
+            } => {
+                let mut used = vec![*condition, *true_blk, *false_blk];
+                used.extend(true_args.iter().cloned());
+                used.extend(false_args.iter().cloned());
+                (vec![], used)
+            }
+            Instruction::Jump { dst, args } => {
+                let mut used = vec![*dst];
+                used.extend(args.iter().cloned());
+                (vec![], used)
+            }
             Instruction::MakeIterator {
                 src: iter,
                 dst: result,
@@ -497,15 +555,54 @@ impl std::fmt::Display for Instruction {
                 }
                 Ok(())
             }
-            Instruction::Br { dst } => {
-                write!(f, "br {dst}")
+            Instruction::Jump { dst, args } => {
+                write!(f, "jump {dst}")?;
+
+                if !args.is_empty() {
+                    write!(f, "(")?;
+                    for (i, arg) in args.iter().enumerate() {
+                        write!(f, "{arg}")?;
+                        if i != args.len() - 1 {
+                            write!(f, ", ")?;
+                        }
+                    }
+                    write!(f, ")")?;
+                }
+
+                Ok(())
             }
             Instruction::BrIf {
                 condition,
                 true_blk,
                 false_blk,
+                true_args,
+                false_args,
             } => {
-                write!(f, "br_if {condition}, {true_blk}, {false_blk}")
+                write!(f, "br_if {condition}, ")?;
+                write!(f, "{true_blk}")?;
+                if !true_args.is_empty() {
+                    write!(f, "(")?;
+                    for (i, arg) in true_args.iter().enumerate() {
+                        write!(f, "{arg}")?;
+                        if i != true_args.len() - 1 {
+                            write!(f, ", ")?;
+                        }
+                    }
+                    write!(f, ")")?;
+                }
+                write!(f, ", ")?;
+                write!(f, "{false_blk}")?;
+                if !false_args.is_empty() {
+                    write!(f, "(")?;
+                    for (i, arg) in false_args.iter().enumerate() {
+                        write!(f, "{arg}")?;
+                        if i != false_args.len() - 1 {
+                            write!(f, ", ")?;
+                        }
+                    }
+                    write!(f, ")")?;
+                }
+                Ok(())
             }
             Instruction::MakeIterator { src, dst } => {
                 write!(f, "{dst} = make_iterator {src}")
@@ -581,7 +678,7 @@ impl Instructions {
         self.insts.push(instruction);
     }
 
-    pub fn iter(&self) -> InstructionsIterator {
+    pub fn iter(&self) -> InstructionsIterator<'_> {
         InstructionsIterator {
             iter: self.insts.iter(),
         }
@@ -606,133 +703,6 @@ impl IntoIterator for Instructions {
 
     fn into_iter(self) -> Self::IntoIter {
         self.insts.into_iter()
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct ControlFlowGraph {
-    pub(crate) blocks: Vec<Block>,
-    pub(crate) entry: Option<BlockId>,
-    pub(crate) current_block: Option<BlockId>,
-    pub(crate) variables: Vec<VariableId>,
-    pub(crate) graph: DiGraph<BlockId, Instruction>,
-    pub(crate) block_node_map: HashMap<BlockId, NodeIndex>,
-}
-
-impl ControlFlowGraph {
-    pub fn new() -> Self {
-        Self {
-            blocks: Vec::new(),
-            entry: None,
-            current_block: None,
-            variables: Vec::new(),
-            graph: DiGraph::new(),
-            block_node_map: HashMap::new(),
-        }
-    }
-
-    pub fn switch_to_block(&mut self, block: BlockId) {
-        self.current_block = Some(block);
-    }
-
-    pub fn create_block(&mut self, label: impl Into<Name>) -> BlockId {
-        let id = BlockId::new(self.blocks.len());
-        self.blocks.push(Block::new(id, label));
-        let node = self.graph.add_node(id);
-        self.block_node_map.insert(id, node);
-        id
-    }
-
-    pub(crate) fn create_block_with_instructions(
-        &mut self,
-        label: impl Into<Name>,
-        instructions: Vec<Instruction>,
-    ) -> BlockId {
-        let id = BlockId::new(self.blocks.len());
-        let block = Block::new(id, label).with_instructions(instructions);
-        self.blocks.push(block);
-        let node = self.graph.add_node(id);
-        self.block_node_map.insert(id, node);
-        id
-    }
-
-    pub fn entry(&self) -> Option<BlockId> {
-        self.entry
-    }
-
-    pub fn set_entry(&mut self, entry: BlockId) {
-        self.entry = Some(entry);
-    }
-
-    pub fn current_block(&self) -> Option<BlockId> {
-        self.current_block
-    }
-
-    pub fn emit(&mut self, inst: Instruction) {
-        match &inst {
-            Instruction::Br { dst } => {
-                let curr = self.current_block.expect("no current block");
-                let dst = dst.as_block().expect("not a block");
-
-                self.block_append_successor(curr, dst, inst.clone());
-            }
-            Instruction::BrIf {
-                true_blk,
-                false_blk,
-                ..
-            } => {
-                let curr = self.current_block.expect("no current block");
-                let then_blk = true_blk.as_block().expect("not a block");
-                let else_blk = false_blk.as_block().expect("not a block");
-
-                self.block_append_successor(curr, then_blk, inst.clone());
-                self.block_append_successor(curr, else_blk, inst.clone());
-            }
-            _ => {}
-        }
-
-        self.current_block
-            .and_then(|curr| self.blocks.get_mut(curr.as_usize()))
-            .expect("no current block")
-            .emit(inst);
-    }
-
-    pub fn create_variable(&mut self) -> Value {
-        let id = VariableId::new(self.variables.len());
-        self.variables.push(id);
-        Value::new(id)
-    }
-
-    pub(crate) fn get_block(&self, id: BlockId) -> Option<&Block> {
-        self.blocks.get(id.as_usize())
-    }
-
-    pub fn block_append_successor(
-        &mut self,
-        block: BlockId,
-        successors: BlockId,
-        inst: Instruction,
-    ) {
-        self.graph.add_edge(
-            self.block_node_map[&block],
-            self.block_node_map[&successors],
-            inst,
-        );
-    }
-
-    pub fn block_remove_successor(&mut self, block: BlockId, successors: BlockId) {
-        if let Some(edge) = self.graph.find_edge(
-            self.block_node_map[&block],
-            self.block_node_map[&successors],
-        ) {
-            self.graph.remove_edge(edge);
-        }
-    }
-}
-
-impl Default for ControlFlowGraph {
-    fn default() -> Self {
-        Self::new()
     }
 }
 
@@ -780,139 +750,5 @@ impl Default for Name {
 impl fmt::Display for Name {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "{}", self.0.as_deref().unwrap_or("<anonymous>"))
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct Block {
-    pub(crate) id: BlockId,
-    pub(crate) label: Name,
-    pub(crate) instructions: Vec<Instruction>,
-}
-
-impl Block {
-    pub fn new(id: BlockId, label: impl Into<Name>) -> Self {
-        Self {
-            id,
-            label: label.into(),
-            instructions: Vec::new(),
-        }
-    }
-
-    pub fn emit(&mut self, instruction: Instruction) {
-        self.instructions.push(instruction);
-    }
-
-    pub fn with_instructions(mut self, instructions: Vec<Instruction>) -> Self {
-        self.instructions = instructions;
-        self
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FuncParam {
-    pub name: Name,
-}
-
-impl FuncParam {
-    pub fn new(name: impl Into<Name>) -> Self {
-        Self { name: name.into() }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FuncSignature {
-    pub name: Name,
-    pub params: Vec<FuncParam>,
-}
-
-impl FuncSignature {
-    pub fn new(name: impl Into<Name>, params: Vec<FuncParam>) -> Self {
-        Self {
-            name: name.into(),
-            params,
-        }
-    }
-}
-
-#[derive(Debug, Clone)]
-pub struct IrFunction {
-    pub id: FunctionId,
-    pub signature: FuncSignature,
-    pub control_flow_graph: ControlFlowGraph,
-}
-
-impl IrFunction {
-    pub fn new(id: FunctionId, signature: FuncSignature) -> Self {
-        Self {
-            id,
-            signature,
-            control_flow_graph: ControlFlowGraph::new(),
-        }
-    }
-}
-
-#[derive(Debug)]
-pub struct IrUnit {
-    pub constants: Vec<Constant>,
-    pub functions: Vec<IrFunction>,
-    pub control_flow_graph: ControlFlowGraph,
-}
-
-impl IrUnit {
-    pub fn new() -> Self {
-        Self {
-            constants: Vec::new(),
-            functions: Vec::new(),
-            control_flow_graph: ControlFlowGraph::new(),
-        }
-    }
-
-    pub fn get_function(&self, id: FunctionId) -> Option<&IrFunction> {
-        self.functions.get(id.as_usize())
-    }
-
-    pub fn find_function(&self, name: &str) -> Option<&IrFunction> {
-        self.functions.iter().find(|f| match f.signature.name.0 {
-            Some(ref n) => n == name,
-            None => false,
-        })
-    }
-
-    pub fn make_constant(&mut self, value: Constant) -> ConstantId {
-        match self.constants.iter().position(|item| item == &value) {
-            Some(index) => ConstantId::new(index as u32),
-            None => {
-                let id = ConstantId::new(self.constants.len() as u32);
-                self.constants.push(value);
-                id
-            }
-        }
-    }
-
-    pub fn declare_function(&mut self, signature: FuncSignature) -> FunctionId {
-        // maybe exists
-        if let Some(id) = self.functions.iter().position(|f| f.signature == signature) {
-            return FunctionId::new(id as u32);
-        }
-
-        let id = FunctionId::new(self.functions.len() as u32);
-        self.functions.push(IrFunction::new(id, signature));
-        id
-    }
-
-    pub fn define_function(&mut self, id: FunctionId, func: IrFunction) {
-        let old = &mut self.functions[id.as_usize()];
-
-        let _ = std::mem::replace(old, func);
-    }
-
-    pub fn get_block(&self, id: BlockId) -> Option<&Block> {
-        self.control_flow_graph.blocks.get(id.as_usize())
-    }
-
-    pub fn with_control_flow_graph(mut self, control_flow_graph: ControlFlowGraph) -> Self {
-        self.control_flow_graph = control_flow_graph;
-        self
     }
 }

@@ -1,4 +1,8 @@
-use std::{collections::HashMap, fmt, sync::Arc};
+use std::{
+    collections::{BTreeMap, HashMap},
+    fmt,
+    sync::Arc,
+};
 
 pub const MIN_REQUIRED_REGISTER: usize = 3;
 
@@ -8,6 +12,7 @@ pub struct Module {
     pub constants: Vec<Constant>,
     pub symtab: HashMap<FunctionId, usize>,
     pub instructions: Vec<Bytecode>,
+    pub debug_instructions: BTreeMap<usize, crate::compiler::Instruction>,
 }
 
 impl Module {
@@ -22,10 +27,40 @@ impl Module {
             constants,
             symtab,
             instructions,
+            debug_instructions: BTreeMap::new(),
         }
     }
 }
+impl fmt::Display for Module {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "Module")?;
+        if let Some(name) = &self.name {
+            write!(f, " {name}")?;
+        }
+        writeln!(f)?;
 
+        writeln!(f, "=== constants ===")?;
+        for (i, constant) in self.constants.iter().enumerate() {
+            writeln!(f, "{i}\t: {constant}")?;
+        }
+
+        writeln!(f, "=== symtab ===")?;
+        for (function_id, &index) in &self.symtab {
+            writeln!(f, "{function_id}: {index}")?;
+        }
+
+        writeln!(f, "=== instructions ===")?;
+        for (i, instruction) in self.instructions.iter().enumerate() {
+            write!(f, "{i}\t: {instruction}")?;
+            if let Some(debug_instruction) = self.debug_instructions.get(&i) {
+                writeln!(f, "\t;{debug_instruction:<16}")?;
+            } else {
+                writeln!(f)?;
+            }
+        }
+        Ok(())
+    }
+}
 #[derive(Debug, Clone, Copy)]
 pub struct Bytecode {
     pub opcode: Opcode,
@@ -107,8 +142,8 @@ pub enum Opcode {
     Ret,
     /// mov dst, src
     Mov,
-    /// br offset
-    Br,
+    /// jump offset
+    Jump,
     /// br_if cond, true_offset, false_offset
     BrIf,
     /// not dst, src
@@ -192,7 +227,7 @@ pub enum Opcode {
 impl fmt::Display for Opcode {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Opcode::Br => write!(f, "br"),
+            Opcode::Jump => write!(f, "br"),
             Opcode::BrIf => write!(f, "br_if"),
             Opcode::Halt => write!(f, "halt"),
             Opcode::Push => write!(f, "push"),
@@ -515,5 +550,11 @@ impl FunctionId {
 
     pub fn as_isize(&self) -> isize {
         self.0 as isize
+    }
+}
+
+impl fmt::Display for FunctionId {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
     }
 }

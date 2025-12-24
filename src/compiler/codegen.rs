@@ -1,9 +1,8 @@
-use std::collections::HashMap;
+use std::collections::{BTreeMap, HashMap};
 
 use log::{debug, trace};
-use petgraph::visit::DfsPostOrder;
 
-use super::ir::instruction::{Block, ControlFlowGraph, Instruction, Value};
+use super::ir::{ControlFlowGraph, Instruction, Value};
 use crate::bytecode::{Bytecode, Opcode, Operand, Register};
 
 use super::regalloc::{Action, RegAlloc};
@@ -15,6 +14,7 @@ pub struct Codegen {
     codes: Vec<Bytecode>,
     block_map: HashMap<isize, isize>,
     inst_index: usize,
+    insts: BTreeMap<usize, Instruction>,
 }
 
 impl Codegen {
@@ -24,26 +24,15 @@ impl Codegen {
             codes: Vec::new(),
             block_map: HashMap::new(),
             inst_index: 0,
+            insts: BTreeMap::new(),
         }
     }
 
     pub fn generate_code(&mut self, cfg: ControlFlowGraph) -> &[Bytecode] {
-        let mut cfg = cfg;
+        // debug ir
+        let block_layout = cfg.loop_root_reverse_postorder_layout2();
 
-        Self::resort_blocks(&mut cfg);
-
-        debug!("===IR===");
-        let mut pos = 0;
-        for block in &cfg.blocks {
-            debug!("block({}):", block.id.as_usize());
-            for inst in &block.instructions {
-                debug!("{pos}\t{inst}");
-                pos += 1;
-            }
-        }
-        debug!("===IR===");
-
-        self.reg_alloc.arrange(&cfg);
+        self.reg_alloc.arrange(&cfg, &block_layout);
 
         let mut patchs: Vec<PatchFn> = Vec::new();
 
@@ -61,13 +50,15 @@ impl Codegen {
             Operand::new_immd(0),
         ));
 
-        for block in cfg.blocks.iter() {
+        for block in block_layout.iter(&cfg) {
             self.block_map
-                .insert(block.id.as_usize() as isize, self.codes.len() as isize);
+                .insert(block.id().as_usize() as isize, self.codes.len() as isize);
 
-            for inst in &block.instructions {
+            for inst in block.instructions() {
                 debug!("inst[{}]: {inst:?}", self.inst_index);
                 debug!("register: {}", self.reg_alloc.reg_set);
+
+                self.insts.insert(self.codes.len(), inst.clone());
 
                 match inst.clone() {
                     // Function Call Instructions
@@ -296,7 +287,43 @@ impl Codegen {
 
                         self.codes.push(Bytecode::empty(Opcode::Ret));
                     }
-                    Instruction::Br { dst } => {
+                    Instruction::Jump { dst, args } => {
+                        // 为每个跳转参数生成mov指令
+                        for (param, arg) in cfg
+                            .get_block(dst.to_block())
+                            .map(|b| b.params())
+                            .unwrap_or_default()
+                            .iter()
+                            .zip(args.iter())
+                        {
+                            let arg_op = self.gen_operand(*arg);
+                            // 检查形参是否已分配寄存器
+                            if let Some(param_reg) = self.reg_alloc.get_register(param) {
+                                self.codes.push(Bytecode::double(
+                                    Opcode::Mov,
+                                    param_reg.into(),
+                                    arg_op,
+                                ));
+                            } else if let Some(stack_offset) =
+                                self.reg_alloc.get_stack_offset(param)
+                            {
+                                // 形参在栈上，存储到栈位置
+                                self.codes.push(Bytecode::double(
+                                    Opcode::Mov,
+                                    Operand::Stack(stack_offset as isize),
+                                    arg_op,
+                                ));
+                            } else {
+                                // 既不在寄存器也不在栈上，分配一个新寄存器（后备方案）
+                                let param_reg = self.reg_alloc.alloc(*param, self.inst_index).0;
+                                self.codes.push(Bytecode::double(
+                                    Opcode::Mov,
+                                    param_reg.into(),
+                                    arg_op,
+                                ));
+                            }
+                        }
+
                         let dst = self.gen_operand(dst);
 
                         let pos = self.codes.len();
@@ -306,13 +333,79 @@ impl Codegen {
                                 Operand::new_immd(this.block_map[&dst] - pos as isize);
                         }));
 
-                        self.codes.push(Bytecode::single(Opcode::Br, dst));
+                        self.codes.push(Bytecode::single(Opcode::Jump, dst));
                     }
                     Instruction::BrIf {
                         condition,
                         true_blk,
                         false_blk,
+                        true_args,
+                        false_args,
                     } => {
+                        // 为true分支参数生成mov指令
+                        let true_block_id = true_blk.to_block();
+                        let true_params = cfg
+                            .get_block(true_block_id)
+                            .map(|b| b.params())
+                            .unwrap_or_default();
+                        for (param, arg) in true_params.iter().zip(true_args.iter()) {
+                            let arg_op = self.gen_operand(*arg);
+                            if let Some(param_reg) = self.reg_alloc.get_register(param) {
+                                self.codes.push(Bytecode::double(
+                                    Opcode::Mov,
+                                    param_reg.into(),
+                                    arg_op,
+                                ));
+                            } else if let Some(stack_offset) =
+                                self.reg_alloc.get_stack_offset(param)
+                            {
+                                self.codes.push(Bytecode::double(
+                                    Opcode::Mov,
+                                    Operand::Stack(stack_offset as isize),
+                                    arg_op,
+                                ));
+                            } else {
+                                let param_reg = self.reg_alloc.alloc(*param, self.inst_index).0;
+                                self.codes.push(Bytecode::double(
+                                    Opcode::Mov,
+                                    param_reg.into(),
+                                    arg_op,
+                                ));
+                            }
+                        }
+
+                        // 为false分支参数生成mov指令
+                        let false_block_id = false_blk.to_block();
+                        let false_params = cfg
+                            .get_block(false_block_id)
+                            .map(|b| b.params())
+                            .unwrap_or_default();
+                        for (param, arg) in false_params.iter().zip(false_args.iter()) {
+                            let arg_op = self.gen_operand(*arg);
+                            if let Some(param_reg) = self.reg_alloc.get_register(param) {
+                                self.codes.push(Bytecode::double(
+                                    Opcode::Mov,
+                                    param_reg.into(),
+                                    arg_op,
+                                ));
+                            } else if let Some(stack_offset) =
+                                self.reg_alloc.get_stack_offset(param)
+                            {
+                                self.codes.push(Bytecode::double(
+                                    Opcode::Mov,
+                                    Operand::Stack(stack_offset as isize),
+                                    arg_op,
+                                ));
+                            } else {
+                                let param_reg = self.reg_alloc.alloc(*param, self.inst_index).0;
+                                self.codes.push(Bytecode::double(
+                                    Opcode::Mov,
+                                    param_reg.into(),
+                                    arg_op,
+                                ));
+                            }
+                        }
+
                         let condition = self.gen_operand(condition);
                         let true_blk = self.gen_operand(true_blk);
                         let false_blk = self.gen_operand(false_blk);
@@ -344,37 +437,6 @@ impl Codegen {
                         let dst = self.gen_operand(dst);
                         self.codes
                             .push(Bytecode::double(Opcode::Await, dst, promise));
-                    }
-                }
-
-                let (defined, used) = inst.defined_and_used_vars();
-                for var in defined {
-                    if matches!(var, Value::Variable(_)) {
-                        if let Some(Action::Spill { stack, register }) =
-                            self.reg_alloc.release(var, self.inst_index)
-                        {
-                            trace!("spilling({var}) {register} -> [rbp+{stack}]");
-                            self.codes.push(Bytecode::double(
-                                Opcode::Mov,
-                                Operand::Stack(stack as isize),
-                                register.into(),
-                            ));
-                        }
-                    }
-                }
-
-                for var in used {
-                    if matches!(var, Value::Variable(_)) {
-                        if let Some(Action::Spill { stack, register }) =
-                            self.reg_alloc.release(var, self.inst_index)
-                        {
-                            trace!("spilling({var}) {register} -> [rbp+{stack}]");
-                            self.codes.push(Bytecode::double(
-                                Opcode::Mov,
-                                Operand::Stack(stack as isize),
-                                register.into(),
-                            ));
-                        }
                     }
                 }
 
@@ -505,6 +567,7 @@ impl Codegen {
             Operand::new_register(Register::Rv),
         ));
     }
+
     fn gen_call_native(&mut self, func: Value, args: &[Value], result: Value) {
         let callable = self.gen_operand(func);
 
@@ -615,7 +678,9 @@ impl Codegen {
         for arg in args.iter().rev() {
             let op = self.gen_operand(*arg);
             self.codes.push(Bytecode::single(Opcode::Push, op));
-            if let Some(action) = self.reg_alloc.release(*arg, index) {
+            if let Value::Variable(arg) = arg
+                && let Some(action) = self.reg_alloc.release(*arg, index)
+            {
                 match action {
                     Action::Spill { stack, register } => {
                         trace!("spilling({arg}) {register} -> [rbp+{stack}]");
@@ -637,8 +702,9 @@ impl Codegen {
             Value::Constant(id) => Operand::new_immd(id.as_usize() as isize),
             Value::Function(id) => Operand::new_symbol(id.as_usize() as u32),
             Value::Block(id) => Operand::new_immd(id.as_usize() as isize),
-            Value::Variable(_) => {
-                let (register, unspill) = self.reg_alloc.alloc(value, self.inst_index);
+            Value::Variable(var) => {
+                let (register, unspill) = self.reg_alloc.alloc(var, self.inst_index);
+                trace!("allocating {value} -> {register}, unspill = {unspill:?}");
 
                 if let Some(Action::Restore { stack, register }) = unspill {
                     trace!("unspilling({value}) [rbp+{stack}] -> {register}");
@@ -654,59 +720,11 @@ impl Codegen {
         }
     }
 
-    fn resort_blocks(control_flow_graph: &mut ControlFlowGraph) {
-        // sort blocks by post order
-        let mut sorted = sort_graph_blocks(control_flow_graph);
-
-        let mut iter = sorted.iter_mut().peekable();
-
-        while let Some(block) = iter.next() {
-            // remove instructions after return
-            if let Some(i) = block
-                .instructions
-                .iter()
-                .rposition(|item| matches!(item, Instruction::Return { .. }))
-            {
-                if i + 1 < block.instructions.len() {
-                    block.instructions.drain(i + 1..);
-                }
-            }
-
-            let next_block_id = iter.peek().map(|b| b.id);
-            if let Some(Instruction::Br { dst }) = block.instructions.last() {
-                if next_block_id == dst.as_block() {
-                    block.instructions.pop();
-                }
-            }
-        }
-
-        control_flow_graph.blocks = sorted;
-    }
-}
-
-fn sort_graph_blocks(control_flow_graph: &ControlFlowGraph) -> Vec<Block> {
-    let graph = &control_flow_graph.graph;
-    let entry = control_flow_graph.entry().expect("no entry block");
-    let start = control_flow_graph.block_node_map[&entry];
-
-    let mut dfs = DfsPostOrder::new(graph, start);
-
-    let mut sorted = Vec::new();
-
-    while let Some(node) = dfs.next(graph) {
-        let block_id = graph[node];
-        sorted.push(block_id);
+    fn emit_code(&mut self, code: Bytecode) {
+        self.codes.push(code);
     }
 
-    sorted.reverse();
-
-    sorted
-        .into_iter()
-        .map(|block_id| {
-            let block = control_flow_graph
-                .get_block(block_id)
-                .expect("no such block");
-            block.clone()
-        })
-        .collect()
+    pub fn debug_insts(&self) -> &BTreeMap<usize, Instruction> {
+        &self.insts
+    }
 }

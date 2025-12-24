@@ -8,7 +8,6 @@ impl Object for String {
     }
 
     fn equal(&self, other: &Value) -> Result<Value, RuntimeError> {
-        println!("equal string {self} {other:?}");
         if let Some(other) = other.downcast_ref::<String>() {
             return Ok(Value::new(self == other));
         }

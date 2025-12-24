@@ -3,7 +3,10 @@ use std::collections::HashMap;
 use crate::bytecode::Constant;
 use crate::bytecode::FunctionId;
 use crate::bytecode::Opcode;
+use crate::compiler::ir::IrFunction;
+use crate::compiler::ir::IrUnit;
 
+use super::cfg::ControlFlowGraph;
 use super::instruction::*;
 
 pub trait InstBuilder {
@@ -64,6 +67,10 @@ pub trait InstBuilder {
 
     fn switch_to_block(&mut self, block: BlockId) {
         self.control_flow_graph_mut().switch_to_block(block);
+    }
+
+    fn seal_block(&mut self, block: BlockId) {
+        self.control_flow_graph_mut().seal_block(block);
     }
 
     fn unaryop(&mut self, op: Opcode, src: Value) -> Value {
@@ -188,9 +195,10 @@ pub trait InstBuilder {
         result
     }
 
-    fn br(&mut self, dst_blk: BlockId) {
-        self.emit(Instruction::Br {
+    fn jump(&mut self, dst_blk: BlockId) {
+        self.emit(Instruction::Jump {
             dst: Value::Block(dst_blk),
+            args: Vec::new(),
         });
     }
 
@@ -199,6 +207,8 @@ pub trait InstBuilder {
             condition,
             true_blk: Value::Block(true_blk),
             false_blk: Value::Block(false_blk),
+            true_args: Vec::new(),
+            false_args: Vec::new(),
         });
     }
     fn return_(&mut self, value: Option<Value>) {

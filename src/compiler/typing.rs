@@ -49,7 +49,7 @@ impl ErrKind {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord)]
 pub struct TypeId(usize);
 
-#[derive(Debug, Clone, PartialEq, Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum Type {
     Boolean,
     Byte,
@@ -83,6 +83,10 @@ impl Type {
     pub fn is_string(&self) -> bool {
         matches!(self, Type::String)
     }
+
+    pub fn is_array(&self) -> bool {
+        matches!(self, Type::Array)
+    }
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -91,7 +95,7 @@ pub enum TypeDef {
     Enum(EnumDef),
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FunctionDef {
     pub name: String,
     pub params: Vec<(String, Option<Type>)>,
@@ -375,7 +379,7 @@ impl<'a> TypeChecker<'a> {
             self.symbols.insert(name.to_string(), Type::Any);
         }
         // insert function type
-        for (name, func) in self.type_cx.functions.iter() {
+        for (_name, func) in self.type_cx.functions.iter() {
             self.symbols
                 .insert(func.name.clone(), Type::Function(func.clone()));
         }
@@ -471,7 +475,7 @@ impl<'a> TypeChecker<'a> {
                 Ok(())
             }
             Pattern::Wildcard => Ok(()),
-            Pattern::Literal(literal) => Ok(()),
+            Pattern::Literal(_literal) => Ok(()),
         }
     }
 
@@ -486,14 +490,14 @@ impl<'a> TypeChecker<'a> {
         if let Some(expr) = &return_stmt.value {
             let return_ty = self.check_expression(expr)?;
 
-            if let Some(expected_ty) = &self.current_function_return_type {
-                if return_ty != *expected_ty {
-                    return Err(ErrKind::TypeMismatch {
-                        expected: expected_ty.clone(),
-                        actual: return_ty,
-                    }
-                    .with_span(expr.span()));
+            if let Some(expected_ty) = &self.current_function_return_type
+                && return_ty != *expected_ty
+            {
+                return Err(ErrKind::TypeMismatch {
+                    expected: expected_ty.clone(),
+                    actual: return_ty,
                 }
+                .with_span(expr.span()));
             }
         }
         Ok(())
@@ -579,13 +583,13 @@ impl<'a> TypeChecker<'a> {
             Expression::Binary(bin) => self.check_binary(bin),
             Expression::Prefix(prefix) => self.check_prefix(prefix),
             Expression::Call(call) => self.check_call(call),
-            Expression::Environment(env) => Ok(Type::String),
+            Expression::Environment(_env) => Ok(Type::String),
             Expression::Path(path) => self.check_path(path),
             Expression::Tuple(tuple) => self.check_tuple(tuple),
             Expression::Array(arr) => self.check_array(arr),
-            Expression::Map(map) => Ok(Type::Any), // 暂定Map类型为Any
+            Expression::Map(_map) => Ok(Type::Any), // 暂定Map类型为Any
             Expression::Closure(closure) => self.check_closure(closure),
-            Expression::Range(range) => Ok(Type::Any), // 暂定Range类型为Any
+            Expression::Range(_range) => Ok(Type::Any), // 暂定Range类型为Any
             Expression::Slice(slice) => self.check_slice(slice),
             Expression::Assign(assign) => self.check_assign(assign),
             Expression::IndexGet(index) => self.check_index_get(index),
@@ -602,22 +606,22 @@ impl<'a> TypeChecker<'a> {
         ret.map_err(|err| err.with_span(expr.span))
     }
 
-    fn check_path(&self, path: &PathExpression) -> Result<Type, TypeError> {
+    fn check_path(&self, _path: &PathExpression) -> Result<Type, TypeError> {
         // 路径表达式类型解析逻辑
         Ok(Type::Any) // 暂定返回Any类型
     }
 
-    fn check_tuple(&mut self, tuple: &TupleExpression) -> Result<Type, TypeError> {
+    fn check_tuple(&mut self, _tuple: &TupleExpression) -> Result<Type, TypeError> {
         // 元组类型解析逻辑
         Ok(Type::Tuple)
     }
 
-    fn check_array(&mut self, arr: &ArrayExpression) -> Result<Type, TypeError> {
+    fn check_array(&mut self, _arr: &ArrayExpression) -> Result<Type, TypeError> {
         // 数组类型解析逻辑
         Ok(Type::Array)
     }
 
-    fn check_closure(&mut self, closure: &ClosureExpression) -> Result<Type, TypeError> {
+    fn check_closure(&mut self, _closure: &ClosureExpression) -> Result<Type, TypeError> {
         // // 闭包类型解析逻辑
         // Ok(Type::Function(Box::new(FunctionDef {
         //     name: "".to_string(),
@@ -628,7 +632,7 @@ impl<'a> TypeChecker<'a> {
         Ok(Type::Any) // 临时返回 Any 类型
     }
 
-    fn check_slice(&mut self, slice: &SliceExpression) -> Result<Type, TypeError> {
+    fn check_slice(&mut self, _slice: &SliceExpression) -> Result<Type, TypeError> {
         // 切片类型解析逻辑
         Ok(Type::Array)
     }
@@ -638,7 +642,7 @@ impl<'a> TypeChecker<'a> {
         self.check_expression(&assign.value)
     }
 
-    fn check_index_get(&mut self, index: &IndexGetExpression) -> Result<Type, TypeError> {
+    fn check_index_get(&mut self, _index: &IndexGetExpression) -> Result<Type, TypeError> {
         // 索引获取类型解析逻辑
         Ok(Type::Any) // 暂定返回Any类型
     }
@@ -648,7 +652,7 @@ impl<'a> TypeChecker<'a> {
         self.check_expression(&index.value)
     }
 
-    fn check_property_get(&mut self, prop: &PropertyGetExpression) -> Result<Type, TypeError> {
+    fn check_property_get(&mut self, _prop: &PropertyGetExpression) -> Result<Type, TypeError> {
         // 属性获取类型解析逻辑
         Ok(Type::Any) // 暂定返回Any类型
     }
@@ -658,7 +662,7 @@ impl<'a> TypeChecker<'a> {
         self.check_expression(&prop.value)
     }
 
-    fn check_call_method(&mut self, call: &CallMethodExpression) -> Result<Type, TypeError> {
+    fn check_call_method(&mut self, _call: &CallMethodExpression) -> Result<Type, TypeError> {
         // 调用方法类型解析逻辑
         Ok(Type::Any) // 暂定返回Any类型
     }
@@ -668,16 +672,17 @@ impl<'a> TypeChecker<'a> {
             Some(TypeDef::Struct(struct_def)) => {
                 for field in &struct_expr.fields {
                     let field_type = self.check_expression(&field.value)?;
-                    if let Some(expected_type) = struct_def.fields.get(&field.name.node) {
-                        if field_type != *expected_type && field_type != Type::Any {
-                            return Err(TypeError::new(
-                                field.value.span(),
-                                ErrKind::Message(format!(
-                                    "Expected type {:?} for field {:?}, found {:?}",
-                                    expected_type, field.name, field_type
-                                )),
-                            ));
-                        }
+                    if let Some(expected_type) = struct_def.fields.get(&field.name.node)
+                        && field_type != *expected_type
+                        && field_type != Type::Any
+                    {
+                        return Err(TypeError::new(
+                            field.value.span(),
+                            ErrKind::Message(format!(
+                                "Expected type {:?} for field {:?}, found {:?}",
+                                expected_type, field.name, field_type
+                            )),
+                        ));
                     }
                 }
 
@@ -827,7 +832,7 @@ impl<'a> TypeChecker<'a> {
                 }
 
                 // Check each argument type
-                for (i, (param_name, param_type)) in func_def.params.iter().enumerate() {
+                for (i, (_param_name, param_type)) in func_def.params.iter().enumerate() {
                     let arg_type = self.check_expression(&call.args[i])?;
                     if let Some(expected_type) = param_type {
                         // Handle Type::Any as compatible with any type

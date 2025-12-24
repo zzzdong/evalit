@@ -114,7 +114,7 @@ pub trait Object: std::any::Any + std::fmt::Debug + Send + Sync {
         ))
     }
 
-    fn call(&mut self, args: &[ValueRef]) -> Result<Option<Value>, RuntimeError> {
+    fn call(&mut self, _args: &[ValueRef]) -> Result<Option<Value>, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::Call,
             "unimplemented",
@@ -122,28 +122,28 @@ pub trait Object: std::any::Any + std::fmt::Debug + Send + Sync {
     }
 
     /// index get operation
-    fn index_get(&self, index: &Value) -> Result<ValueRef, RuntimeError> {
+    fn index_get(&self, _index: &Value) -> Result<ValueRef, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::IndexGet,
             "unimplemented",
         ))
     }
 
-    fn index_set(&mut self, index: &Value, value: ValueRef) -> Result<(), RuntimeError> {
+    fn index_set(&mut self, _index: &Value, _value: ValueRef) -> Result<(), RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::IndexSet,
             "unimplemented",
         ))
     }
 
-    fn property_get(&self, property: &str) -> Result<ValueRef, RuntimeError> {
+    fn property_get(&self, _property: &str) -> Result<ValueRef, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::PropertyGet,
             "unimplemented",
         ))
     }
 
-    fn property_set(&mut self, property: &str, value: ValueRef) -> Result<(), RuntimeError> {
+    fn property_set(&mut self, _property: &str, _value: ValueRef) -> Result<(), RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::PropertySet,
             "unimplemented",
@@ -153,7 +153,7 @@ pub trait Object: std::any::Any + std::fmt::Debug + Send + Sync {
     fn call_method(
         &mut self,
         method: &str,
-        args: &[ValueRef],
+        _args: &[ValueRef],
     ) -> Result<Option<ValueRef>, RuntimeError> {
         Err(RuntimeError::MissingMethod {
             object: type_name_of_val(self).to_string(),
@@ -177,7 +177,7 @@ pub trait Object: std::any::Any + std::fmt::Debug + Send + Sync {
         ))
     }
 
-    fn make_slice(&self, range: ValueRef) -> Result<Value, RuntimeError> {
+    fn make_slice(&self, _range: ValueRef) -> Result<Value, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::MakeSlice,
             "unimplemented",
@@ -442,7 +442,7 @@ pub trait ObjectBase: std::any::Any + std::fmt::Debug {
         ))
     }
 
-    fn call(&mut self, args: &[ValueRef]) -> Result<Option<Value>, RuntimeError> {
+    fn call(&mut self, _args: &[ValueRef]) -> Result<Option<Value>, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::Call,
             "unimplemented",
@@ -450,28 +450,28 @@ pub trait ObjectBase: std::any::Any + std::fmt::Debug {
     }
 
     /// index get operation
-    fn index_get(&self, index: &Value) -> Result<ValueRef, RuntimeError> {
+    fn index_get(&self, _index: &Value) -> Result<ValueRef, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::IndexGet,
             "unimplemented",
         ))
     }
 
-    fn index_set(&mut self, index: &Value, value: ValueRef) -> Result<(), RuntimeError> {
+    fn index_set(&mut self, _index: &Value, _value: ValueRef) -> Result<(), RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::IndexSet,
             "unimplemented",
         ))
     }
 
-    fn property_get(&self, property: &str) -> Result<ValueRef, RuntimeError> {
+    fn property_get(&self, _property: &str) -> Result<ValueRef, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::PropertyGet,
             "unimplemented",
         ))
     }
 
-    fn property_set(&mut self, property: &str, value: ValueRef) -> Result<(), RuntimeError> {
+    fn property_set(&mut self, _property: &str, _value: ValueRef) -> Result<(), RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::PropertySet,
             "unimplemented",
@@ -481,7 +481,7 @@ pub trait ObjectBase: std::any::Any + std::fmt::Debug {
     fn call_method(
         &mut self,
         method: &str,
-        args: &[ValueRef],
+        _args: &[ValueRef],
     ) -> Result<Option<ValueRef>, RuntimeError> {
         Err(RuntimeError::MissingMethod {
             object: type_name_of_val(self).to_string(),
@@ -505,7 +505,7 @@ pub trait ObjectBase: std::any::Any + std::fmt::Debug {
         ))
     }
 
-    fn make_slice(&self, range: ValueRef) -> Result<Value, RuntimeError> {
+    fn make_slice(&self, _range: ValueRef) -> Result<Value, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::MakeSlice,
             "unimplemented",

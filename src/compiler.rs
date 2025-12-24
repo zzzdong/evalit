@@ -11,8 +11,8 @@ mod typing;
 use std::collections::HashMap;
 use std::sync::Arc;
 
+use ir::IrUnit;
 use ir::builder::{InstBuilder, IrBuilder};
-use ir::instruction::IrUnit;
 use log::debug;
 use typing::{TypeChecker, TypeContext, TypeError};
 
@@ -25,6 +25,8 @@ use parser::ParseError;
 use codegen::Codegen;
 use lowering::ASTLower;
 use semantic::{SemanticAnalyzer, SemanticError};
+
+pub(crate) use ir::Instruction;
 
 pub fn compile<'i>(
     script: &'i str,
@@ -185,21 +187,41 @@ impl Compiler {
         let mut lower = ASTLower::new(builder, SymbolTable::new(), env, &type_cx);
         lower.lower_program(ast);
 
+        // println!("before SSA:\n{}", unit.control_flow_graph);
+
+        // TODO: 暂时禁用SSA转换，待修复后再启用
+        let mut ssa_builder = ir::SSABuilder::new(&mut unit.control_flow_graph);
+        ssa_builder.convert_to_ssa();
+
+        // println!("after SSA:\n{}", unit.control_flow_graph);
+
+        // panic!("debug");
+
         // code generation, IR -> bytecode
         let mut codegen = Codegen::new(&Register::general());
         let insts = codegen.generate_code(unit.control_flow_graph);
 
         let mut instructions = insts.to_vec();
+        let mut debug_instructions = codegen.debug_insts().clone();
 
         let mut symtab = HashMap::new();
         // relocate symbol table
         let mut offset = instructions.len();
-        for func in unit.functions {
+        for mut func in unit.functions.into_iter() {
+            let mut ssa_builder = ir::SSABuilder::new(&mut func.control_flow_graph);
+            ssa_builder.convert_to_ssa();
+
             let mut codegen = Codegen::new(&Register::general());
             let insts = codegen.generate_code(func.control_flow_graph);
             symtab.insert(func.id, offset);
             offset += insts.len();
             instructions.extend(insts.to_vec());
+            debug_instructions.extend(
+                codegen
+                    .debug_insts()
+                    .iter()
+                    .map(|(id, inst)| (*id + offset, inst.clone())),
+            );
         }
 
         let module = Module {
@@ -207,6 +229,7 @@ impl Compiler {
             constants: unit.constants,
             symtab,
             instructions: instructions.to_vec(),
+            debug_instructions,
         };
 
         Ok(Arc::new(module))
