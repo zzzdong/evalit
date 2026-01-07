@@ -14,6 +14,26 @@ fn test_null() {
 
     println!("ret: {:?}", retval);
     assert_eq!(retval, Null);
+
+    let env = Environment::new();
+    let script = r#"
+    let x = null;
+    return x;
+    "#;
+    let retval = Interpreter::eval(script, env).unwrap().unwrap();
+
+    println!("ret: {:?}", retval);
+    assert_eq!(retval, Null);
+
+    let env = Environment::new();
+    let script = r#"
+    let x: int = null;
+    return x;
+    "#;
+    let ret = Interpreter::eval(script, env);
+
+    println!("ret: {:?}", ret);
+    assert!(ret.is_err());
 }
 
 #[test]

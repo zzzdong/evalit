@@ -196,7 +196,7 @@ pub enum Opcode {
     RangeToInclusive,
     /// make_iter dst, src
     MakeIter,
-    /// iter_next dst, src
+    /// iter_next dst, has_next, src
     IterNext,
     /// make_array dst
     MakeArray,

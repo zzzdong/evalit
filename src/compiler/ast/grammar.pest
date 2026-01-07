@@ -105,9 +105,10 @@ tuple_pattern = { "(" ~ (pattern ~ ",")* ~ pattern ~ ")" }
 /// Expression
 expression = { prefix_operator* ~ primary ~ postfix* ~ (infix_operator ~ prefix_operator* ~ primary ~ postfix*)* }
 
-type_expression = { type_any | type_bool | type_byte | type_int | type_float | type_char | type_string | type_array | type_tuple | type_generic | type_impl | type_user_defined }
+type_expression = { type_any | type_null | type_bool | type_byte | type_int | type_float | type_char | type_string | type_array | type_tuple | type_user_defined }
 
 type_any          = { "any" }
+type_null         = { "null" }
 type_bool         = { "bool" }
 type_byte         = { "byte" }
 type_int          = { "int" }
@@ -117,8 +118,6 @@ type_string       = { "string" }
 type_user_defined = { identifier }
 type_tuple        = { "(" ~ (((type_expression ~ ",")+ ~ type_expression) | (type_expression ~ ",")) ~ ")" }
 type_array        = { "[" ~ "]" ~ type_expression }
-type_impl         = { "impl" ~ type_expression }
-type_generic      = { identifier ~ "<" ~ type_expression ~ ("," ~ type_expression)* ~ ">" }
 
 /// Primary
 primary = _{ struct_expression | grouped_expression | atom }

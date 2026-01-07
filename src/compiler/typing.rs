@@ -556,7 +556,7 @@ impl<'a> TypeChecker<'a> {
 
         let ty = match (decl_ty, value_ty) {
             (Some(decl_ty), Some(value_ty)) => {
-                if decl_ty != value_ty {
+                if decl_ty != Type::Any && decl_ty != value_ty {
                     return Err(ErrKind::TypeMismatch {
                         expected: decl_ty,
                         actual: value_ty,
@@ -639,7 +639,17 @@ impl<'a> TypeChecker<'a> {
 
     fn check_assign(&mut self, assign: &AssignExpression) -> Result<Type, TypeError> {
         // 赋值表达式类型解析逻辑
-        self.check_expression(&assign.value)
+        let target_type = self.check_expression(&assign.object)?;
+        let source_type = self.check_expression(&assign.value)?;
+        if target_type != source_type && (target_type != Type::Any && source_type != Type::Any) {
+            return Err(ErrKind::TypeMismatch {
+                expected: target_type,
+                actual: source_type,
+            }
+            .with_span(assign.value.span()));
+        }
+
+        Ok(target_type)
     }
 
     fn check_index_get(&mut self, _index: &IndexGetExpression) -> Result<Type, TypeError> {
@@ -672,17 +682,23 @@ impl<'a> TypeChecker<'a> {
             Some(TypeDef::Struct(struct_def)) => {
                 for field in &struct_expr.fields {
                     let field_type = self.check_expression(&field.value)?;
-                    if let Some(expected_type) = struct_def.fields.get(&field.name.node)
-                        && field_type != *expected_type
-                        && field_type != Type::Any
-                    {
-                        return Err(TypeError::new(
-                            field.value.span(),
-                            ErrKind::Message(format!(
-                                "Expected type {:?} for field {:?}, found {:?}",
-                                expected_type, field.name, field_type
-                            )),
-                        ));
+                    if let Some(expected_type) = struct_def.fields.get(&field.name.node) {
+                        match expected_type {
+                            Type::Struct(_) | Type::Any => {
+                                continue;
+                            }
+                            _ => {
+                                if field_type != *expected_type {
+                                    return Err(TypeError::new(
+                                        field.value.span(),
+                                        ErrKind::Message(format!(
+                                            "Expected type {:?} for field {:?}, found {:?}",
+                                            expected_type, field.name, field_type
+                                        )),
+                                    ));
+                                }
+                            }
+                        }
                     }
                 }
 
@@ -725,7 +741,7 @@ impl<'a> TypeChecker<'a> {
 
         match bin.op {
             BinOp::Add | BinOp::Sub | BinOp::Mul | BinOp::Div | BinOp::Rem => {
-                if lhs_type.is_numeric() && lhs_type == rhs_type {
+                if lhs_type == rhs_type || rhs_type == Type::Any || lhs_type == Type::Any {
                     Ok(lhs_type) // Simplified for demonstration
                 } else {
                     Err(ErrKind::Message(format!(

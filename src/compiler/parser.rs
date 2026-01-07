@@ -417,15 +417,6 @@ fn parse_type_expression(pair: Pair<Rule>) -> TypeExpression {
             let tys = pair.into_inner().map(parse_type_expression).collect();
             TypeExpression::Tuple(tys)
         }
-        Rule::type_generic => {
-            let mut inner = pair.into_inner();
-            let name = inner.next().unwrap().as_str().to_string();
-            let params = inner.map(parse_type_expression).collect();
-            TypeExpression::Generic(name, params)
-        }
-        Rule::type_impl => TypeExpression::Impl(Box::new(parse_type_expression(
-            pair.into_inner().next().unwrap(),
-        ))),
         _ => unreachable!("unknown type expression: {pair:?}"),
     }
 }

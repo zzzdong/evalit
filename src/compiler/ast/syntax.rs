@@ -210,8 +210,6 @@ pub enum TypeExpression {
     Array(Box<TypeExpression>),
     Tuple(Vec<TypeExpression>),
     UserDefined(String),
-    Generic(String, Vec<TypeExpression>),
-    Impl(Box<TypeExpression>),
 }
 
 #[derive(Debug, Clone, PartialEq)]
