@@ -43,10 +43,6 @@ impl Object for Enumerator {
         f.debug_struct("Enumerator").finish()
     }
 
-    fn iterate_next(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
-        Ok(self.next())
-    }
-
     fn call_method(
         &mut self,
         method: &str,

@@ -170,13 +170,6 @@ pub trait Object: std::any::Any + std::fmt::Debug + Send + Sync {
         ))
     }
 
-    fn iterate_next(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
-        Err(RuntimeError::invalid_operation(
-            OperateKind::IterateNext,
-            "unimplemented",
-        ))
-    }
-
     fn make_slice(&self, _range: ValueRef) -> Result<Value, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::MakeSlice,
@@ -329,13 +322,6 @@ pub trait Object: std::any::Any + std::fmt::Debug {
     fn make_iterator(&self) -> Result<Box<dyn Iterator<Item = ValueRef>>, RuntimeError> {
         Err(RuntimeError::invalid_operation(
             OperateKind::MakeIterator,
-            "unimplemented",
-        ))
-    }
-
-    fn iterate_next(&mut self) -> Result<Option<ValueRef>, RuntimeError> {
-        Err(RuntimeError::invalid_operation(
-            OperateKind::IterateNext,
             "unimplemented",
         ))
     }

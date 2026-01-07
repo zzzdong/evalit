@@ -228,15 +228,13 @@ impl<'a> ASTLower<'a> {
 
         // loop header, check if iterator has next
         self.builder.switch_to_block(loop_header);
-        let next = self.builder.iterate_next(iterable);
-        let has_next = self.builder.call_property(next, "is_some", vec![]);
+        let (next, has_next) = self.builder.iterate_next(iterable);
         self.builder.br_if(has_next, loop_body, after_blk);
 
         // loop body, get next value
         self.builder.switch_to_block(loop_body);
 
         self.symbols.enter_scope();
-        let next = self.builder.call_property(next, "unwrap", vec![]);
         self.lower_pattern(pat, next);
 
         self.lower_block(body);

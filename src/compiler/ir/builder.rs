@@ -226,11 +226,15 @@ pub trait InstBuilder {
         result
     }
 
-    fn iterate_next(&mut self, iter: Value) -> Value {
+    fn iterate_next(&mut self, iter: Value) -> (Value, Value) {
         let next = self.alloc();
-        self.emit(Instruction::IterateNext { iter, dst: next });
-
-        next
+        let has_next = self.alloc();
+        self.emit(Instruction::IterateNext {
+            iter,
+            item: next,
+            has_next,
+        });
+        (next, has_next)
     }
 
     fn make_range(&mut self, op: Opcode, begin: Option<Value>, end: Option<Value>) -> Value {

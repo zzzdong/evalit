@@ -267,11 +267,16 @@ impl Codegen {
                         self.codes
                             .push(Bytecode::double(Opcode::MakeIter, dst, src));
                     }
-                    Instruction::IterateNext { iter, dst: next } => {
+                    Instruction::IterateNext {
+                        iter,
+                        item,
+                        has_next,
+                    } => {
                         let src = self.gen_operand(iter);
-                        let dst = self.gen_operand(next);
+                        let dst = self.gen_operand(item);
+                        let has_next = self.gen_operand(has_next);
                         self.codes
-                            .push(Bytecode::double(Opcode::IterNext, dst, src));
+                            .push(Bytecode::triple(Opcode::IterNext, dst, has_next, src));
                     }
 
                     // Control Flow Instructions

@@ -294,7 +294,8 @@ pub enum Instruction {
         src: Value,
     },
     IterateNext {
-        dst: Value,
+        item: Value,
+        has_next: Value,
         iter: Value,
     },
 
@@ -434,7 +435,11 @@ impl Instruction {
                 src: iter,
                 dst: result,
             } => (vec![*result], vec![*iter]),
-            Instruction::IterateNext { iter, dst: next } => (vec![*next], vec![*iter]),
+            Instruction::IterateNext {
+                iter,
+                item,
+                has_next,
+            } => (vec![*item, *has_next], vec![*iter]),
             Instruction::MakeRange {
                 begin, end, result, ..
             } => match (begin, end) {
@@ -607,8 +612,12 @@ impl std::fmt::Display for Instruction {
             Instruction::MakeIterator { src, dst } => {
                 write!(f, "{dst} = make_iterator {src}")
             }
-            Instruction::IterateNext { iter, dst } => {
-                write!(f, "{dst} = iterate_next {iter}")
+            Instruction::IterateNext {
+                iter,
+                item,
+                has_next,
+            } => {
+                write!(f, "{item}, {has_next} = iterate_next {iter}")
             }
             Instruction::MakeRange {
                 op,

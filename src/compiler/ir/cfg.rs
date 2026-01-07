@@ -652,13 +652,14 @@ impl ControlFlowGraph {
         let mut order = Vec::new();
 
         if let Some(entry_block) = self.entry
-            && let Some(&entry_node) = self.block_node_map.get(&entry_block) {
-                let mut dfs = DfsPostOrder::new(&self.graph, entry_node);
+            && let Some(&entry_node) = self.block_node_map.get(&entry_block)
+        {
+            let mut dfs = DfsPostOrder::new(&self.graph, entry_node);
 
-                while let Some(node) = dfs.next(&self.graph) {
-                    order.push(self.graph[node]);
-                }
+            while let Some(node) = dfs.next(&self.graph) {
+                order.push(self.graph[node]);
             }
+        }
 
         order.reverse(); // DfsPostOrder得到的是后序，反转得到逆后序
         order
@@ -709,9 +710,7 @@ impl BlockLayout {
     }
 
     pub fn get_block_pos(&self, block_id: BlockId) -> usize {
-        *self.block_pos_map
-            .get(&block_id)
-            .expect("block not found")
+        *self.block_pos_map.get(&block_id).expect("block not found")
     }
 
     pub fn iter<'a>(&self, cfg: &'a ControlFlowGraph) -> impl Iterator<Item = &'a Block> {

@@ -331,9 +331,10 @@ impl<'a> SSABuilder<'a> {
             // 将新定义的变量版本压栈
             for var in &defined {
                 if let Some(new_ver) = new_versions.get(var)
-                    && let Value::Variable(var_id) = new_ver {
-                        stacks.entry(*var).or_default().push(*var_id);
-                    }
+                    && let Value::Variable(var_id) = new_ver
+                {
+                    stacks.entry(*var).or_default().push(*var_id);
+                }
             }
 
             // 如果本条是 Jump/BrIf，立即回退它的 def （如果它定义了变量）
@@ -526,8 +527,13 @@ impl<'a> SSABuilder<'a> {
                 SSABuilder::rename_definition(dst, new_versions);
                 SSABuilder::rename_use(src, stacks);
             }
-            Instruction::IterateNext { iter, dst } => {
-                SSABuilder::rename_definition(dst, new_versions);
+            Instruction::IterateNext {
+                iter,
+                item,
+                has_next,
+            } => {
+                SSABuilder::rename_definition(item, new_versions);
+                SSABuilder::rename_definition(has_next, new_versions);
                 SSABuilder::rename_use(iter, stacks);
             }
             Instruction::MakeRange {
@@ -589,18 +595,20 @@ impl<'a> SSABuilder<'a> {
     /// 重命名定义点：使用预创建的新版本
     fn rename_definition(var: &mut Value, new_versions: &HashMap<Variable, Value>) {
         if let Value::Variable(var_id) = var
-            && let Some(new_version) = new_versions.get(var_id) {
-                *var = *new_version;
-            }
+            && let Some(new_version) = new_versions.get(var_id)
+        {
+            *var = *new_version;
+        }
     }
 
     /// 重命名使用点：从栈顶获取当前版本
     fn rename_use(var: &mut Value, stacks: &VersionStack) {
         if let Value::Variable(var_id) = var
             && let Some(stack) = stacks.get(var_id)
-                && let Some(current_version) = stack.last() {
-                    *var = Value::Variable(*current_version);
-                }
-                // 如果栈为空，说明变量未定义，保持原样（可能会在后端报错）
+            && let Some(current_version) = stack.last()
+        {
+            *var = Value::Variable(*current_version);
+        }
+        // 如果栈为空，说明变量未定义，保持原样（可能会在后端报错）
     }
 }

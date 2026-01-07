@@ -523,9 +523,21 @@ impl VM {
             }
 
             Opcode::IterNext => {
-                let iterator = self.get_value(operands[1])?;
-                let next = iterator.as_object_mut().iterate_next()?;
-                self.set_value(operands[0], Value::new(next))?;
+                let iterator = self.get_value(operands[2])?;
+
+                match iterator.value_mut().downcast_mut::<Enumerator>() {
+                    Some(obj) => {
+                        let (next, has_next) = match obj.next() {
+                            Some(next) => (next, true),
+                            None => (Value::null().into(), false),
+                        };
+                        self.set_value(operands[0], next)?;
+                        self.set_value(operands[1], ValueRef::new(has_next))?;
+                    }
+                    None => {
+                        return Err(RuntimeError::invalid_type::<Enumerator>(&iterator));
+                    }
+                }
             }
 
             // Object Method Call

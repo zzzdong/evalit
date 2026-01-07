@@ -83,9 +83,10 @@ impl LiveInterval {
         self.end = self.end.max(index);
         // 更新最后一个范围的结束位置
         if let Some(last) = self.ranges.last_mut()
-            && index > last.end {
-                last.end = index;
-            }
+            && index > last.end
+        {
+            last.end = index;
+        }
     }
 
     pub fn merge(&mut self, other: &LiveInterval) {
