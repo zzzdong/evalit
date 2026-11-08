@@ -8,6 +8,11 @@ mod semantic;
 mod symbol;
 mod typing;
 
+// 挂在 compiler 下，才能访问 ir / ast / symbol 这些私有子模块里的纯函数。
+#[cfg(test)]
+#[path = "unit_tests.rs"]
+mod unit_tests;
+
 use std::collections::HashMap;
 use std::sync::Arc;
 

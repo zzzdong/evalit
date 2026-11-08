@@ -694,4 +694,47 @@ mod tests {
                 .any(|action| matches!(action, Action::Restore { .. }))
         );
     }
+
+    #[test]
+    fn stack_slots_are_stable_and_monotonic() {
+        let mut ra = RegAlloc::new(&Register::general()[..4]);
+        let a = Variable::new(3);
+        let b = Variable::new(7);
+        assert_eq!(ra.stack_slot(a), 0);
+        assert_eq!(ra.stack_slot(b), 1);
+        assert_eq!(ra.stack_slot(a), 0);
+        assert_eq!(ra.stack_size(), 2);
+    }
+
+    #[test]
+    fn backup_list_excludes_the_return_register() {
+        let mut ra = RegAlloc::new(&Register::general()[..4]);
+        let v0 = Variable::new(0);
+        let v1 = Variable::new(1);
+        ra.stack_slot(v0);
+        ra.stack_slot(v1);
+        ra.liveness.set_register(v0, RETURN_REGISTER);
+        ra.liveness.set_register(v1, Register::R1);
+        ra.alloc(v0, &[]);
+        ra.alloc(v1, &[]);
+
+        let in_use = ra.in_use_registers();
+        assert!(!in_use.contains(&RETURN_REGISTER));
+        assert!(in_use.contains(&Register::R1));
+    }
+
+    #[test]
+    fn empty_live_interval_never_overlaps() {
+        let mut empty = LiveInterval::new(Variable::new(0));
+        let empty_set: std::collections::BTreeSet<usize> = Default::default();
+        empty.rebuild(&empty_set);
+        assert!(empty.ranges.is_empty());
+        assert_eq!(empty.start, usize::MAX);
+        assert_eq!(empty.end, 0);
+
+        let mut other = LiveInterval::new(Variable::new(1));
+        other.rebuild(&[0, 1].into_iter().collect());
+        assert!(!empty.overlaps(&other));
+        assert!(!other.overlaps(&empty));
+    }
 }

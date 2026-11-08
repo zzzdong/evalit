@@ -816,3 +816,118 @@ impl fmt::Display for State {
         Ok(())
     }
 }
+
+#[cfg(test)]
+mod state_tests {
+    use super::*;
+
+    #[test]
+    fn register_file_is_sixteen_general_registers() {
+        let mut state = State::new();
+        assert_eq!(state.registers.len(), 16);
+        assert_eq!(RETURN_REGISTER, Register::R0);
+        assert!(matches!(
+            state.get_register(Register::Rsp),
+            Err(RuntimeError::InvalidRegisterAccess(_))
+        ));
+        assert!(matches!(
+            state.set_register(Register::Rbp, ValueRef::null()),
+            Err(RuntimeError::InvalidRegisterAccess(_))
+        ));
+        assert!(
+            state
+                .set_register(Register::R15, ValueRef::new(5i64))
+                .is_ok()
+        );
+        assert_eq!(
+            format!("{}", state.get_register(Register::R15).unwrap()),
+            "5"
+        );
+    }
+
+    #[test]
+    fn push_pop_and_empty_stack_bounds() {
+        let mut state = State::new();
+        state.push(ValueRef::new(9i64)).unwrap();
+        assert_eq!(state.rsp, 1);
+        let value = state.pop().unwrap();
+        assert_eq!(format!("{value}"), "9");
+        assert_eq!(state.rsp, 0);
+        assert!(matches!(state.pop(), Err(RuntimeError::StackOverflow)));
+    }
+
+    #[test]
+    fn stack_slots_are_rbp_relative() {
+        let mut state = State::new();
+        assert!(matches!(
+            state.get_value_from_stack(-1),
+            Err(RuntimeError::StackOverflow)
+        ));
+        state.set_value_to_stack(2, ValueRef::new(7i64)).unwrap();
+        assert_eq!(format!("{}", state.get_value_from_stack(2).unwrap()), "7");
+
+        state.rbp = 100;
+        assert_eq!(
+            format!("{}", state.get_value_from_stack(2).unwrap()),
+            "null"
+        );
+        state.set_value_to_stack(2, ValueRef::new(8i64)).unwrap();
+        assert_eq!(format!("{}", state.get_value_from_stack(2).unwrap()), "8");
+    }
+
+    #[test]
+    fn call_args_are_rsp_relative_and_bounded() {
+        let mut state = State::new();
+        for i in 1..=3i64 {
+            state.push(ValueRef::new(i)).unwrap();
+        }
+        // arg0 最后入栈，因此位于 rsp-1。
+        assert_eq!(format!("{}", state.call_arg(0, 3).unwrap()), "3");
+        assert_eq!(format!("{}", state.call_arg(1, 3).unwrap()), "2");
+        assert_eq!(format!("{}", state.call_arg(2, 3).unwrap()), "1");
+        assert!(state.call_arg(3, 3).is_err());
+    }
+
+    #[test]
+    fn open_and_close_frame_restore_state() {
+        let mut state = State::new();
+        state.push(ValueRef::new(1i64)).unwrap();
+        let base = state.rsp;
+
+        state.open_frame(42).unwrap();
+        assert_eq!(state.pc, 42);
+        assert_eq!(state.rbp, base);
+        assert_eq!(state.frames.len(), 1);
+
+        // 模拟被调函数推进栈指针、执行到别的 pc。
+        state.rsp += 5;
+        state.jump(50);
+        assert!(state.close_frame());
+        assert_eq!(state.rsp, base, "callee frame is discarded");
+        assert_eq!(state.rbp, 0);
+        assert_eq!(state.pc, 1, "return_pc is the instruction after Call");
+        assert!(!state.close_frame(), "outermost frame has no caller");
+    }
+
+    #[test]
+    fn frame_depth_is_bounded() {
+        let mut state = State::new();
+        for _ in 0..STACK_MAX {
+            state.open_frame(0).unwrap();
+        }
+        assert!(matches!(
+            state.open_frame(0),
+            Err(RuntimeError::StackOverflow)
+        ));
+    }
+
+    #[test]
+    fn jump_offset_moves_pc() {
+        let mut state = State::new();
+        state.jump(10);
+        state.jump_offset(-3);
+        assert_eq!(state.pc, 7);
+        state.jump_offset(5);
+        assert_eq!(state.pc, 12);
+    }
+}
