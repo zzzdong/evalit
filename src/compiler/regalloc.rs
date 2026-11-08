@@ -23,7 +23,7 @@ use log::trace;
 
 use super::ir::{BlockId, ControlFlowGraph};
 use crate::{
-    bytecode::{MIN_REQUIRED_REGISTER, Register},
+    bytecode::{MIN_REQUIRED_REGISTER, RETURN_REGISTER, Register},
     compiler::ir::{cfg::BlockLayout, instruction::Variable},
 };
 
@@ -280,11 +280,13 @@ impl RegAlloc {
         0 - ((arg as isize) + 1)
     }
 
+    /// 调用点需要备份的寄存器。返回值寄存器是 caller-clobbered：调用前由
+    /// `spill_return_register` 落栈，调用后不能再 Pop 回来覆盖返回值。
     pub fn in_use_registers(&self) -> Vec<Register> {
         self.reg_set
             .registers
             .iter()
-            .filter(|reg| reg.variable.is_some())
+            .filter(|reg| reg.variable.is_some() && reg.register != RETURN_REGISTER)
             .map(|reg| reg.register)
             .collect()
     }
@@ -308,6 +310,18 @@ impl RegAlloc {
         self.reg_set.release(var);
     }
 
+    /// 调用前：返回值寄存器会被被调函数覆写。若它当前绑定了变量，先把值
+    /// 写回固定栈槽并解绑，调用方之后从槽 Restore，不会丢值。
+    pub fn spill_return_register(&mut self) -> Option<Action> {
+        let var = self.reg_set.holder(RETURN_REGISTER)?;
+        let stack = self.stack_slot(var);
+        self.reg_set.release(var);
+        Some(Action::Spill {
+            register: RETURN_REGISTER,
+            stack,
+        })
+    }
+
     /// 块出口：把当前绑定在寄存器中的变量全部写回各自的固定栈槽。
     /// 这同时保证终止符里的跳转实参读到的是最新值。
     pub fn spill_all_bound(&mut self) -> Vec<Action> {
@@ -328,6 +342,21 @@ impl RegAlloc {
     /// 分配寄存器，返回**按序**执行的动作：先 Spill 被驱逐者，再 Restore 目标。
     /// `locked` 是本条 IR 指令已经生成的操作数寄存器，驱逐时必须跳过。
     pub fn alloc(&mut self, var: Variable, locked: &[Register]) -> (Register, Vec<Action>) {
+        self.alloc_inner(var, locked, true)
+    }
+
+    /// 定义位置：值马上会被覆盖，只分配位置与必要的驱逐动作，不发 Restore。
+    /// 调用返回值的目标必须走这里，否则 Restore 会抢先覆写 R0 里的返回值。
+    pub fn alloc_def(&mut self, var: Variable, locked: &[Register]) -> (Register, Vec<Action>) {
+        self.alloc_inner(var, locked, false)
+    }
+
+    fn alloc_inner(
+        &mut self,
+        var: Variable,
+        locked: &[Register],
+        restore: bool,
+    ) -> (Register, Vec<Action>) {
         if let Some(register) = self.reg_set.find(var) {
             return (register, Vec::new());
         }
@@ -387,9 +416,11 @@ impl RegAlloc {
         };
 
         self.reg_set.bind(register, var, fixed.is_some());
-        // 栈槽是权威值：绑定建立后总是从槽恢复，块入口 / phi 交接 / 驱逐
-        // 后都能拿到正确值（多出的 Mov 由 golden 快照记录，可后续优化）。
-        actions.push(Action::Restore { stack, register });
+        if restore {
+            // 栈槽是权威值：绑定建立后从槽恢复；定义位置跳过，避免覆盖
+            // 即将写入的返回值（多出的 Mov 由 golden 快照记录）。
+            actions.push(Action::Restore { stack, register });
+        }
         (register, actions)
     }
 
@@ -622,5 +653,45 @@ mod tests {
         assert_eq!(reg0, Register::R0);
         assert_ne!(reg1, reg0);
         assert_eq!(ra.reg_set.find(v0), Some(Register::R0));
+    }
+
+    #[test]
+    fn spill_return_register_saves_the_live_value() {
+        let mut ra = RegAlloc::new(&Register::general()[..4]);
+        let v0 = Variable::new(0);
+        ra.stack_slot(v0);
+        ra.liveness.set_register(v0, RETURN_REGISTER);
+
+        let (reg, _) = ra.alloc(v0, &[]);
+        assert_eq!(reg, RETURN_REGISTER);
+
+        match ra.spill_return_register() {
+            Some(Action::Spill { register, .. }) => assert_eq!(register, RETURN_REGISTER),
+            _ => panic!("expected a spill of the live value in R0"),
+        }
+        assert!(ra.reg_set.find(v0).is_none());
+        assert!(ra.spill_return_register().is_none());
+    }
+
+    #[test]
+    fn alloc_def_does_not_restore() {
+        let mut ra = RegAlloc::new(&Register::general()[..4]);
+        let v0 = Variable::new(0);
+        ra.stack_slot(v0);
+        let (_, actions) = ra.alloc(v0, &[]);
+        assert!(
+            actions
+                .iter()
+                .any(|action| matches!(action, Action::Restore { .. }))
+        );
+
+        let v1 = Variable::new(1);
+        ra.stack_slot(v1);
+        let (_, actions) = ra.alloc_def(v1, &[]);
+        assert!(
+            !actions
+                .iter()
+                .any(|action| matches!(action, Action::Restore { .. }))
+        );
     }
 }

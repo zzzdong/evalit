@@ -42,7 +42,7 @@
 38	: mov [rbp+3], r0, 0
 39	: br -24, 0, 0
 40	: mov r0, [rbp+3], 0
-41	: mov rv, r0, 0
+41	: mov r0, r0, 0
 42	: ret 0, 0, 0
 43	: mov [rbp+3], r0, 0
 44	: halt 0, 0, 0

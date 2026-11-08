@@ -115,7 +115,7 @@
 111	: mov [rbp+36], r1, 0
 112	: mov r1, [rbp+38], 0
 113	: addx r1, r3, r0
-114	: mov rv, r1, 0
+114	: mov r0, r1, 0
 115	: ret 0, 0, 0
 116	: mov [rbp+19], r0, 0
 117	: mov [rbp+38], r1, 0

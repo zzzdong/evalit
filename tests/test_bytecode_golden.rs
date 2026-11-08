@@ -77,6 +77,19 @@ const CASES: &[(&str, &str)] = &[
         "#,
     ),
     ("many_live_values", MANY_LIVE_VALUES),
+    (
+        "call_with_live_values",
+        r#"
+        fn add(a, b) {
+            return a + b;
+        }
+        let a = 1;
+        let b = 2;
+        let c = 3;
+        let first = add(a, b);
+        return first + c;
+        "#,
+    ),
 ];
 
 /// 高寄存器压力：变量数超过通用寄存器数，覆盖溢出 / 驱逐 / 栈槽交接。

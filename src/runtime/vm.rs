@@ -10,7 +10,9 @@ use super::{
     Enumerator, EnvVariable, Environment, NativeFunction, Object, Range, RuntimeError,
     UserFunction, Value, object::StructObject, value::ValueRef,
 };
-use crate::bytecode::{Bytecode, Constant, FunctionId, Module, Opcode, Operand, Register};
+use crate::bytecode::{
+    Bytecode, Constant, FunctionId, Module, Opcode, Operand, RETURN_REGISTER, Register,
+};
 use log::debug;
 
 const STACK_MAX: usize = 0x0FFF;
@@ -42,15 +44,16 @@ impl VM {
 
             match opcode {
                 Opcode::Halt => {
-                    let ret = self.get_value(Operand::Register(Register::Rv))?;
-                    return Ok(Some(ret));
+                    // 无显式 return 的脚本自然结束，返回 null；显式 return
+                    // 走顶层 Ret 分支，从 ABI 返回值寄存器取结果。
+                    return Ok(Some(ValueRef::null()));
                 }
 
                 Opcode::Ret => {
                     // close_frame 一次完成退帧：回退 rsp/rbp 并把 pc 指向调用方。
                     // 顶层（没有帧）返回即结束执行。
                     if !self.state.close_frame() {
-                        let ret = self.get_value(Operand::Register(Register::Rv))?;
+                        let ret = self.get_value(Operand::Register(RETURN_REGISTER))?;
                         return Ok(Some(ret));
                     }
                 }
@@ -87,15 +90,16 @@ impl VM {
 
             match opcode {
                 Opcode::Halt => {
-                    let ret = self.get_value(Operand::Register(Register::Rv))?;
-                    return Ok(Some(ret));
+                    // 无显式 return 的脚本自然结束，返回 null；显式 return
+                    // 走顶层 Ret 分支，从 ABI 返回值寄存器取结果。
+                    return Ok(Some(ValueRef::null()));
                 }
 
                 Opcode::Ret => {
                     // close_frame 一次完成退帧：回退 rsp/rbp 并把 pc 指向调用方。
                     // 顶层（没有帧）返回即结束执行。
                     if !self.state.close_frame() {
-                        let ret = self.get_value(Operand::Register(Register::Rv))?;
+                        let ret = self.get_value(Operand::Register(RETURN_REGISTER))?;
                         return Ok(Some(ret));
                     }
                 }
@@ -535,7 +539,7 @@ impl VM {
                 }
                 let ret = object.as_object_mut().call_method(&prop, &args)?;
                 let ret = ret.unwrap_or(ValueRef::null());
-                self.state.set_register(Register::Rv, ret)?;
+                self.state.set_register(RETURN_REGISTER, ret)?;
             }
 
             // Native method call
@@ -552,7 +556,8 @@ impl VM {
                         }
                         let ret = func.call(&args)?;
                         let ret = ret.unwrap_or(Value::null());
-                        self.state.set_register(Register::Rv, ValueRef::from(ret))?;
+                        self.state
+                            .set_register(RETURN_REGISTER, ValueRef::from(ret))?;
                     }
                     None => {
                         return Err(RuntimeError::invalid_operand(operands[0]));
@@ -625,7 +630,8 @@ struct Frame {
 #[derive(Debug)]
 pub struct State {
     pub data_stack: [ValueRef; STACK_MAX],
-    pub registers: [ValueRef; 20],
+    /// 16 个通用寄存器（R0..R15）；Rsp/Rbp 是栈寻址伪寄存器，不在寄存器文件里。
+    pub registers: [ValueRef; 16],
     frames: Vec<Frame>,
     pub rsp: usize,
     pub rbp: usize,

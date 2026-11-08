@@ -361,9 +361,14 @@ pub enum Register {
     Rsp,
     /// Base pointer
     Rbp,
-    /// Return value
-    Rv,
 }
+
+/// 调用约定的返回值寄存器：类比 x86-64 的 RAX / AArch64 的 x0。
+///
+/// 它是 16 个通用寄存器之一，不再是独立的伪寄存器。被调函数把返回值写进
+/// R0，调用点在 Call 之前负责把 R0 上可能存在的活跃值落回固定栈槽；
+/// 因此 R0 仍参与普通寄存器分配，只是被视为 caller-clobbered。
+pub const RETURN_REGISTER: Register = Register::R0;
 
 impl Register {
     pub fn as_usize(&self) -> usize {
@@ -395,7 +400,7 @@ impl Register {
         [Register::R0, Register::R1, Register::R2, Register::R3]
     }
 
-    pub fn all() -> [Register; 19] {
+    pub fn all() -> [Register; 18] {
         [
             Register::R0,
             Register::R1,
@@ -415,7 +420,6 @@ impl Register {
             Register::R15,
             Register::Rsp,
             Register::Rbp,
-            Register::Rv,
         ]
     }
 }
@@ -441,7 +445,6 @@ impl fmt::Display for Register {
             Register::R15 => write!(f, "r15"),
             Register::Rsp => write!(f, "rsp"),
             Register::Rbp => write!(f, "rbp"),
-            Register::Rv => write!(f, "rv"),
         }
     }
 }

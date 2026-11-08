@@ -72,7 +72,7 @@
 68	: mov [rbp+9], r0, 0
 69	: br -30, 0, 0
 70	: mov r0, [rbp+3], 0
-71	: mov rv, r0, 0
+71	: mov r0, r0, 0
 72	: ret 0, 0, 0
 73	: mov [rbp+3], r0, 0
 74	: halt 0, 0, 0

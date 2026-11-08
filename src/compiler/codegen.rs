@@ -3,7 +3,7 @@ use std::collections::{BTreeMap, HashMap};
 use log::{debug, trace};
 
 use super::ir::{ControlFlowGraph, Instruction, Value, instruction::Variable};
-use crate::bytecode::{Bytecode, Opcode, Operand, Register};
+use crate::bytecode::{Bytecode, Opcode, Operand, Primitive, RETURN_REGISTER, Register};
 
 use super::regalloc::{Action, RegAlloc};
 
@@ -296,15 +296,14 @@ impl Codegen {
 
                     // Control Flow Instructions
                     Instruction::Return { value } => {
-                        if let Some(v) = value {
-                            let ret = self.gen_operand(v);
-                            self.codes.push(Bytecode::double(
-                                Opcode::Mov,
-                                Operand::new_register(Register::Rv),
-                                ret,
-                            ));
-                        }
-
+                        // 调用约定：返回值写 R0；无值返回时显式置 null，
+                        // 避免调用方读到上一次调用的残留。
+                        let ret = match value {
+                            Some(v) => self.gen_operand(v),
+                            None => Operand::new_primitive(Primitive::Null),
+                        };
+                        self.codes
+                            .push(Bytecode::double(Opcode::Mov, RETURN_REGISTER.into(), ret));
                         self.codes.push(Bytecode::empty(Opcode::Ret));
                     }
                     Instruction::Jump { dst, args } => {
@@ -403,6 +402,8 @@ impl Codegen {
         // 2. Push arguments onto the stack
         self.push_args(&arg_ops);
 
+        self.spill_return_register();
+
         // 3. Call：VM 的 open_frame 建帧（rbp = rsp）并保存返回地址，
         //    close_frame 回退 rsp/rbp，不再需要 PushC / PopC / MovC。
         self.codes
@@ -422,11 +423,12 @@ impl Codegen {
         }
 
         // 6. Move return value to destination register
-        let result_reg = self.gen_operand(result);
+        // result 是定义位置：用 alloc_def 避免 Restore 抢先覆写 R0。
+        let result_reg = self.gen_operand_def(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
-            Operand::new_register(Register::Rv),
+            RETURN_REGISTER.into(),
         ));
     }
 
@@ -442,6 +444,8 @@ impl Codegen {
 
         // 2. Push arguments onto the stack
         self.push_args(&arg_ops);
+
+        self.spill_return_register();
 
         // 3. Call the function (CallEx)，建帧/退帧由 VM 完成
         self.codes.push(Bytecode::single(Opcode::CallEx, callable));
@@ -460,11 +464,12 @@ impl Codegen {
         }
 
         // 6. Move return value to destination register
-        let result_reg = self.gen_operand(result);
+        // result 是定义位置：用 alloc_def 避免 Restore 抢先覆写 R0。
+        let result_reg = self.gen_operand_def(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
-            Operand::new_register(Register::Rv),
+            RETURN_REGISTER.into(),
         ));
     }
 
@@ -473,6 +478,8 @@ impl Codegen {
 
         // 1. Push arguments onto the stack
         self.store_args(args);
+
+        self.spill_return_register();
 
         // 2. Call the native function：实参按 rsp 相对读取，无需改 rbp
         self.codes.push(Bytecode::double(
@@ -490,11 +497,12 @@ impl Codegen {
         ));
 
         // 4. Move return value to destination register
-        let result_reg = self.gen_operand(result);
+        // result 是定义位置：用 alloc_def 避免 Restore 抢先覆写 R0。
+        let result_reg = self.gen_operand_def(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
-            Operand::new_register(Register::Rv),
+            RETURN_REGISTER.into(),
         ));
     }
 
@@ -505,6 +513,7 @@ impl Codegen {
         self.store_args(args);
 
         let prop = self.gen_operand(property);
+        self.spill_return_register();
         // 2. Call method on the object：实参按 rsp 相对读取
         self.codes.push(Bytecode::triple(
             Opcode::CallMethod,
@@ -522,11 +531,12 @@ impl Codegen {
         ));
 
         // 4. Move return value to destination register
-        let result_reg = self.gen_operand(result);
+        // result 是定义位置：用 alloc_def 避免 Restore 抢先覆写 R0。
+        let result_reg = self.gen_operand_def(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
             result_reg,
-            Operand::new_register(Register::Rv),
+            RETURN_REGISTER.into(),
         ));
     }
 
@@ -591,6 +601,28 @@ impl Codegen {
 
     fn begin_inst(&mut self) {
         self.locked.clear();
+    }
+
+    /// 调用前：R0 是 ABI 返回值寄存器且 caller-clobbered，先把它上面可能存在的
+    /// 活跃值写回固定栈槽并解绑，调用方之后从槽 Restore。
+    fn spill_return_register(&mut self) {
+        if let Some(action) = self.reg_alloc.spill_return_register() {
+            self.emit_actions(&[action]);
+        }
+    }
+
+    /// 定义位置：分配目标寄存器但不发 Restore（值马上被返回值覆盖）。
+    fn gen_operand_def(&mut self, value: Value) -> Operand {
+        match value {
+            Value::Variable(var) => {
+                let (register, actions) = self.reg_alloc.alloc_def(var, &self.locked);
+                trace!("defining {value} -> {register}, actions = {actions:?}");
+                self.emit_actions(&actions);
+                self.locked.push(register);
+                Operand::new_register(register)
+            }
+            _ => self.gen_operand(value),
+        }
     }
 
     fn gen_operand(&mut self, value: Value) -> Operand {
