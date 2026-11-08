@@ -69,7 +69,7 @@ fn module_exposes_a_consistent_snapshot() {
 
     assert!(!module.instructions.is_empty());
     assert_eq!(module.symtab.len(), 1);
-    for (_, &entry) in &module.symtab {
+    for &entry in module.symtab.values() {
         assert!(
             entry < module.instructions.len(),
             "function entry must be inside the instruction stream"

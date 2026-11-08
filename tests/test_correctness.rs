@@ -68,7 +68,7 @@ const STRUCTURE_CASES: &[&str] = &[
 fn function_entries_are_inside_the_instruction_stream() {
     for script in STRUCTURE_CASES {
         let module = compile_script(script);
-        for (_, &entry) in &module.symtab {
+        for &entry in module.symtab.values() {
             assert!(
                 entry < module.instructions.len(),
                 "function entry {entry} out of bounds for {script}"
