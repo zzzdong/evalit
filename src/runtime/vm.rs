@@ -47,13 +47,12 @@ impl VM {
                 }
 
                 Opcode::Ret => {
-                    if self.state.ctrl_stack_reached_bottom() {
+                    // close_frame 一次完成退帧：回退 rsp/rbp 并把 pc 指向调用方。
+                    // 顶层（没有帧）返回即结束执行。
+                    if !self.state.close_frame() {
                         let ret = self.get_value(Operand::Register(Register::Rv))?;
                         return Ok(Some(ret));
                     }
-                    let pc = self.state.popc()?;
-
-                    self.state.jump(pc);
                 }
 
                 Opcode::Await => {
@@ -93,13 +92,12 @@ impl VM {
                 }
 
                 Opcode::Ret => {
-                    if self.state.ctrl_stack_reached_bottom() {
+                    // close_frame 一次完成退帧：回退 rsp/rbp 并把 pc 指向调用方。
+                    // 顶层（没有帧）返回即结束执行。
+                    if !self.state.close_frame() {
                         let ret = self.get_value(Operand::Register(Register::Rv))?;
                         return Ok(Some(ret));
                     }
-                    let pc = self.state.popc()?;
-
-                    self.state.jump(pc);
                 }
 
                 _ => {
@@ -120,8 +118,7 @@ impl VM {
                 let func = operands[0].as_immd();
                 match self.program.symtab.get(&FunctionId::new(func as u32)) {
                     Some(location) => {
-                        self.state.pushc(self.state.pc() + 1)?;
-                        self.state.jump(*location);
+                        self.state.open_frame(*location)?;
                         return Ok(());
                     }
                     None => {
@@ -134,8 +131,7 @@ impl VM {
             Opcode::CallEx => match operands[0] {
                 Operand::Symbol(sym) => match self.program.symtab.get(&FunctionId::new(sym)) {
                     Some(location) => {
-                        self.state.pushc(self.state.pc() + 1)?;
-                        self.state.jump(*location);
+                        self.state.open_frame(*location)?;
                         return Ok(());
                     }
                     None => {
@@ -149,8 +145,7 @@ impl VM {
                     match value.value().downcast_ref::<UserFunction>() {
                         Some(func) => match self.program.symtab.get(&func.id()) {
                             Some(location) => {
-                                self.state.pushc(self.state.pc() + 1)?;
-                                self.state.jump(*location);
+                                self.state.open_frame(*location)?;
                                 return Ok(());
                             }
                             None => {
@@ -212,51 +207,14 @@ impl VM {
                 self.set_value(operands[0], value)?;
             }
 
-            Opcode::MovC => match (operands[0], operands[1]) {
-                (Operand::Register(Register::Rsp), Operand::Register(Register::Rbp)) => {
-                    *self.state.rsp_mut() = self.state.rbp();
-                }
-                (Operand::Register(Register::Rbp), Operand::Register(Register::Rsp)) => {
-                    *self.state.rbp_mut() = self.state.rsp();
-                }
-
-                _ => {
-                    return Err(RuntimeError::internal(format!(
-                        "unsupported instruction: {inst:?}"
-                    )));
-                }
-            },
-            Opcode::PushC => match operands[0] {
-                Operand::Register(Register::Rsp) => {
-                    self.state.pushc(self.state.rsp())?;
-                }
-                Operand::Register(Register::Rbp) => {
-                    self.state.pushc(self.state.rbp())?;
-                }
-                _ => {
-                    return Err(RuntimeError::internal(format!(
-                        "unsupported instruction: {inst:?}"
-                    )));
-                }
-            },
-            Opcode::PopC => match operands[0] {
-                Operand::Register(Register::Rsp) => {
-                    let value = self.state.popc()?;
-                    *self.state.rsp_mut() = value;
-                }
-                Operand::Register(Register::Rbp) => {
-                    let value = self.state.popc()?;
-                    *self.state.rbp_mut() = value;
-                }
-                _ => {
-                    return Err(RuntimeError::internal(format!(
-                        "unsupported instruction: {inst:?}"
-                    )));
-                }
-            },
+            // 单栈下 rsp 只由 AddC/SubC 与 Push/Pop 推进，rbp 只在开帧写。
             Opcode::AddC => match (operands[0], operands[1]) {
                 (Operand::Register(Register::Rsp), Operand::Register(Register::Rsp)) => {
-                    *self.state.rsp_mut() = self.state.rsp() + operands[2].as_immd() as usize;
+                    let next = self.state.rsp() as isize + operands[2].as_immd();
+                    if next < 0 || next as usize > STACK_MAX {
+                        return Err(RuntimeError::StackOverflow);
+                    }
+                    *self.state.rsp_mut() = next as usize;
                 }
                 _ => {
                     return Err(RuntimeError::internal(format!(
@@ -266,7 +224,11 @@ impl VM {
             },
             Opcode::SubC => match (operands[0], operands[1]) {
                 (Operand::Register(Register::Rsp), Operand::Register(Register::Rsp)) => {
-                    *self.state.rsp_mut() = self.state.rsp() - operands[2].as_immd() as usize;
+                    let next = self.state.rsp() as isize - operands[2].as_immd();
+                    if next < 0 || next as usize > STACK_MAX {
+                        return Err(RuntimeError::StackOverflow);
+                    }
+                    *self.state.rsp_mut() = next as usize;
                 }
                 _ => {
                     return Err(RuntimeError::internal(format!(
@@ -568,8 +530,7 @@ impl VM {
                 // load args from stack
                 let mut args = Vec::with_capacity(arg_count);
                 for i in 0..arg_count {
-                    let offset = -(i as isize + 1);
-                    let arg = self.get_value(Operand::Stack(offset))?;
+                    let arg = self.state.call_arg(i, arg_count)?;
                     args.push(arg);
                 }
                 let ret = object.as_object_mut().call_method(&prop, &args)?;
@@ -586,8 +547,7 @@ impl VM {
                         // load args from stack
                         let mut args = Vec::with_capacity(arg_count);
                         for i in 0..arg_count {
-                            let offset = -(i as isize + 1);
-                            let arg = self.get_value(Operand::Stack(offset))?;
+                            let arg = self.state.call_arg(i, arg_count)?;
                             args.push(arg);
                         }
                         let ret = func.call(&args)?;
@@ -648,16 +608,27 @@ impl VM {
     }
 }
 
+/// 帧元数据：返回地址与帧窗口。
+///
+/// 运行时数据只有 `data_stack` 一个栈（值、实参、局部槽、寄存器备份都在其中），
+/// 控制信息改为显式帧对象，不再有独立的 ctrl_stack。
+/// 对齐 biujs 的两条不变量：rbp 只在开帧写一次，退帧时由帧派生。
+#[derive(Debug, Clone, Copy)]
+struct Frame {
+    return_pc: usize,
+    /// 开帧时的 rsp：既是被调帧的 rbp，也是退帧时 rsp 的回退点。
+    base: usize,
+}
+
 /// State
 /// note: the stack is from bottom to top
 #[derive(Debug)]
 pub struct State {
     pub data_stack: [ValueRef; STACK_MAX],
-    pub ctrl_stack: [usize; STACK_MAX],
     pub registers: [ValueRef; 20],
+    frames: Vec<Frame>,
     pub rsp: usize,
     pub rbp: usize,
-    pub ctrl_rsp: usize,
     pub pc: usize,
 }
 
@@ -671,21 +642,12 @@ impl State {
     pub fn new() -> Self {
         Self {
             data_stack: std::array::from_fn(|_| ValueRef::null()),
-            ctrl_stack: [0; STACK_MAX],
             registers: std::array::from_fn(|_| ValueRef::null()),
+            frames: Vec::new(),
             rsp: 0,
             rbp: 0,
-            ctrl_rsp: 0,
             pc: 0,
         }
-    }
-
-    pub fn ctrl_stack_reached_bottom(&self) -> bool {
-        self.ctrl_rsp == 0
-    }
-
-    pub fn pc(&self) -> usize {
-        self.pc
     }
 
     pub fn jump(&mut self, offset: usize) {
@@ -704,12 +666,49 @@ impl State {
         &mut self.rsp
     }
 
-    pub fn rbp(&self) -> usize {
-        self.rbp
+    /// 开帧：保存返回地址与帧基址，rbp 指向参数顶（= 当前 rsp）。
+    /// 之后 callee 的 AddC 只推进 rsp，局部槽落在 `[rbp+slot]`。
+    pub fn open_frame(&mut self, callee_pc: usize) -> Result<(), RuntimeError> {
+        if self.frames.len() >= STACK_MAX {
+            return Err(RuntimeError::StackOverflow);
+        }
+        self.frames.push(Frame {
+            return_pc: self.pc + 1,
+            base: self.rsp,
+        });
+        self.rbp = self.rsp;
+        self.jump(callee_pc);
+        Ok(())
     }
 
-    pub fn rbp_mut(&mut self) -> &mut usize {
-        &mut self.rbp
+    /// 收帧：一次回退 rsp/rbp 并恢复 pc；返回 false 表示已是最外层。
+    pub fn close_frame(&mut self) -> bool {
+        match self.frames.pop() {
+            Some(frame) => {
+                // rsp 回到参数顶（丢弃 callee 的 AddC 局部帧），调用方随后
+                // 用 SubC 清参数、Pop 恢复备份寄存器。
+                self.rsp = frame.base;
+                self.rbp = self.frames.last().map(|f| f.base).unwrap_or(0);
+                self.jump(frame.return_pc);
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 实参按逆序压栈，arg0 最后入栈：`arg[i]` 位于 `rsp - 1 - i`
+    /// （等价于旧实现建帧后的 `[rbp - (i+1)]`）。
+    pub fn call_arg(&self, index: usize, argc: usize) -> Result<ValueRef, RuntimeError> {
+        if index >= argc {
+            return Err(RuntimeError::internal("argument index out of range"));
+        }
+        let Some(pos) = self.rsp.checked_sub(index + 1) else {
+            return Err(RuntimeError::StackOverflow);
+        };
+        if pos >= STACK_MAX {
+            return Err(RuntimeError::StackOverflow);
+        }
+        Ok(self.data_stack[pos].clone())
     }
 
     pub fn get_register(&self, reg: Register) -> Result<ValueRef, RuntimeError> {
@@ -739,23 +738,6 @@ impl State {
                 Ok(())
             }
         }
-    }
-
-    pub fn pushc(&mut self, value: usize) -> Result<(), RuntimeError> {
-        if self.ctrl_rsp >= STACK_MAX {
-            return Err(RuntimeError::StackOverflow);
-        }
-        self.ctrl_stack[self.ctrl_rsp] = value;
-        self.ctrl_rsp += 1;
-        Ok(())
-    }
-
-    pub fn popc(&mut self) -> Result<usize, RuntimeError> {
-        if self.ctrl_rsp == 0 {
-            return Err(RuntimeError::StackOverflow);
-        }
-        self.ctrl_rsp -= 1;
-        Ok(self.ctrl_stack[self.ctrl_rsp])
     }
 
     pub fn push(&mut self, value: ValueRef) -> Result<(), RuntimeError> {
@@ -801,11 +783,14 @@ impl fmt::Display for State {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         writeln!(
             f,
-            "VM: rsp: {}, rbp: {}, ctrl_rsp: {}, pc: {}",
-            self.rsp, self.rbp, self.ctrl_rsp, self.pc
+            "VM: rsp: {}, rbp: {}, frames: {}, pc: {}",
+            self.rsp,
+            self.rbp,
+            self.frames.len(),
+            self.pc
         )?;
-        writeln!(f, "Data Stack: {:?}", &self.data_stack[0..self.rsp])?;
-        writeln!(f, "Control Stack: {:?}", &self.ctrl_stack[0..self.ctrl_rsp])?;
+        let end = self.rsp.min(STACK_MAX);
+        writeln!(f, "Data Stack: {:?}", &self.data_stack[0..end])?;
         writeln!(f, "=== Registers ===")?;
         // 每8个寄存器成组打印
         for chunk in self.registers.chunks(8) {

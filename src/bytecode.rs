@@ -131,16 +131,10 @@ pub enum Opcode {
     Push,
     /// pop dst
     Pop,
-    /// pushc offset
-    PushC,
-    /// popc dst
-    PopC,
     /// addc offset
     AddC,
     /// subc offset
     SubC,
-    /// movc
-    MovC,
     /// call func_id
     Call,
     /// call_ex callable
@@ -241,9 +235,6 @@ impl fmt::Display for Opcode {
             Opcode::Halt => write!(f, "halt"),
             Opcode::Push => write!(f, "push"),
             Opcode::Pop => write!(f, "pop"),
-            Opcode::PushC => write!(f, "pushc"),
-            Opcode::PopC => write!(f, "popc"),
-            Opcode::MovC => write!(f, "movc"),
             Opcode::AddC => write!(f, "addc"),
             Opcode::SubC => write!(f, "subc"),
             Opcode::Call => write!(f, "call"),

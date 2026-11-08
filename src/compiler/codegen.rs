@@ -403,33 +403,12 @@ impl Codegen {
         // 2. Push arguments onto the stack
         self.push_args(&arg_ops);
 
-        // 3. Set up new stack frame
-        self.codes.push(Bytecode::single(
-            Opcode::PushC,
-            Operand::new_register(Register::Rbp),
-        ));
-        self.codes.push(Bytecode::double(
-            Opcode::MovC,
-            Operand::new_register(Register::Rbp),
-            Operand::new_register(Register::Rsp),
-        ));
-
-        // 4. Call the function
+        // 3. Call：VM 的 open_frame 建帧（rbp = rsp）并保存返回地址，
+        //    close_frame 回退 rsp/rbp，不再需要 PushC / PopC / MovC。
         self.codes
             .push(Bytecode::single(Opcode::Call, func.to_operand()));
 
-        // 5. Restore stack pointer (reset to current base pointer)
-        self.codes.push(Bytecode::double(
-            Opcode::MovC,
-            Operand::new_register(Register::Rsp),
-            Operand::new_register(Register::Rbp),
-        ));
-
-        // 6. Pop the saved base pointer
-        self.codes
-            .push(Bytecode::single(Opcode::PopC, Register::Rbp.into()));
-
-        // 7. Clean up arguments from the stack
+        // 4. Clean up arguments from the stack
         self.codes.push(Bytecode::triple(
             Opcode::SubC,
             Operand::Register(Register::Rsp),
@@ -437,12 +416,12 @@ impl Codegen {
             Operand::new_immd(args.len() as isize),
         ));
 
-        // 8. Restore backed-up registers
+        // 5. Restore backed-up registers
         for reg in in_use_registers.iter().rev().copied() {
             self.codes.push(Bytecode::single(Opcode::Pop, reg.into()));
         }
 
-        // 9. Move return value to destination register
+        // 6. Move return value to destination register
         let result_reg = self.gen_operand(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
@@ -464,32 +443,10 @@ impl Codegen {
         // 2. Push arguments onto the stack
         self.push_args(&arg_ops);
 
-        // 3. Set up new stack frame
-        self.codes.push(Bytecode::single(
-            Opcode::PushC,
-            Operand::new_register(Register::Rbp),
-        ));
-        self.codes.push(Bytecode::double(
-            Opcode::MovC,
-            Operand::new_register(Register::Rbp),
-            Operand::new_register(Register::Rsp),
-        ));
-
-        // 4. Call the function (CallEx)
+        // 3. Call the function (CallEx)，建帧/退帧由 VM 完成
         self.codes.push(Bytecode::single(Opcode::CallEx, callable));
 
-        // 5. Restore stack pointer to current base pointer
-        self.codes.push(Bytecode::double(
-            Opcode::MovC,
-            Operand::new_register(Register::Rsp),
-            Operand::new_register(Register::Rbp),
-        ));
-
-        // 6. Pop saved base pointer
-        self.codes
-            .push(Bytecode::single(Opcode::PopC, Register::Rbp.into()));
-
-        // 7. Clean up arguments from the stack
+        // 4. Clean up arguments from the stack
         self.codes.push(Bytecode::triple(
             Opcode::SubC,
             Operand::Register(Register::Rsp),
@@ -497,12 +454,12 @@ impl Codegen {
             Operand::new_immd(args.len() as isize),
         ));
 
-        // 8. Restore backed-up registers
+        // 5. Restore backed-up registers
         for reg in in_use_registers.iter().rev().copied() {
             self.codes.push(Bytecode::single(Opcode::Pop, reg.into()));
         }
 
-        // 9. Move return value to destination register
+        // 6. Move return value to destination register
         let result_reg = self.gen_operand(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
@@ -517,36 +474,14 @@ impl Codegen {
         // 1. Push arguments onto the stack
         self.store_args(args);
 
-        // 2. Set up new stack frame
-        self.codes.push(Bytecode::single(
-            Opcode::PushC,
-            Operand::new_register(Register::Rbp),
-        ));
-        self.codes.push(Bytecode::double(
-            Opcode::MovC,
-            Operand::new_register(Register::Rbp),
-            Operand::new_register(Register::Rsp),
-        ));
-
-        // 3. Call the native function
+        // 2. Call the native function：实参按 rsp 相对读取，无需改 rbp
         self.codes.push(Bytecode::double(
             Opcode::CallNative,
             callable,
             Operand::new_immd(args.len() as isize),
         ));
 
-        // 4. Restore stack pointer to current base pointer
-        self.codes.push(Bytecode::double(
-            Opcode::MovC,
-            Operand::new_register(Register::Rsp),
-            Operand::new_register(Register::Rbp),
-        ));
-
-        // 5. Pop saved base pointer
-        self.codes
-            .push(Bytecode::single(Opcode::PopC, Register::Rbp.into()));
-
-        // 6. Clean up arguments from the stack
+        // 3. Clean up arguments from the stack
         self.codes.push(Bytecode::triple(
             Opcode::SubC,
             Operand::Register(Register::Rsp),
@@ -554,7 +489,7 @@ impl Codegen {
             Operand::new_immd(args.len() as isize),
         ));
 
-        // 7. Move return value to destination register
+        // 4. Move return value to destination register
         let result_reg = self.gen_operand(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
@@ -569,19 +504,8 @@ impl Codegen {
         // 1. Push arguments onto the stack
         self.store_args(args);
 
-        // 2. Set up new stack frame
-        self.codes.push(Bytecode::single(
-            Opcode::PushC,
-            Operand::new_register(Register::Rbp),
-        ));
-        self.codes.push(Bytecode::double(
-            Opcode::MovC,
-            Operand::new_register(Register::Rbp),
-            Operand::new_register(Register::Rsp),
-        ));
-
         let prop = self.gen_operand(property);
-        // 3. Call method on the object
+        // 2. Call method on the object：实参按 rsp 相对读取
         self.codes.push(Bytecode::triple(
             Opcode::CallMethod,
             callable,
@@ -589,18 +513,7 @@ impl Codegen {
             Operand::new_immd(args.len() as isize),
         ));
 
-        // 4. Restore stack pointer to current base pointer
-        self.codes.push(Bytecode::double(
-            Opcode::MovC,
-            Operand::new_register(Register::Rsp),
-            Operand::new_register(Register::Rbp),
-        ));
-
-        // 5. Pop saved base pointer
-        self.codes
-            .push(Bytecode::single(Opcode::PopC, Register::Rbp.into()));
-
-        // 6. Clean up arguments from the stack
+        // 3. Clean up arguments from the stack
         self.codes.push(Bytecode::triple(
             Opcode::SubC,
             Operand::Register(Register::Rsp),
@@ -608,7 +521,7 @@ impl Codegen {
             Operand::new_immd(args.len() as isize),
         ));
 
-        // 7. Move return value to destination register
+        // 4. Move return value to destination register
         let result_reg = self.gen_operand(result);
         self.codes.push(Bytecode::double(
             Opcode::Mov,
