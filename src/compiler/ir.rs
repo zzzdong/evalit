@@ -124,8 +124,12 @@ impl IrUnit {
     }
 
     pub fn declare_function(&mut self, signature: FuncSignature) -> FunctionId {
-        // maybe exists
-        if let Some(id) = self.functions.iter().position(|f| f.signature == signature) {
+        // 有名函数按签名去重（TypeContext 先声明、lower_function_item 再定义）。
+        // 匿名闭包的签名只有参数名，多个同参闭包会完全相同，必须各自分配
+        // 独立 id，否则后一个函数体会覆盖前一个，所有闭包都执行最后一份代码。
+        if !signature.name.is_anonymous()
+            && let Some(id) = self.functions.iter().position(|f| f.signature == signature)
+        {
             return FunctionId::new(id as u32);
         }
 

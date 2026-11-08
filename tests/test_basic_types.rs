@@ -92,14 +92,14 @@ fn test_float() {
 
     let env = Environment::new();
 
-    // 测试浮点数
+    // 测试浮点数（不用 PI 的近似值，clippy 的 approx_constant 会报错）
     let script = r#"
-    return 3.1415;
+    return 2.75;
     "#;
     let retval = Interpreter::eval(script, env).unwrap().unwrap();
 
     println!("ret: {:?}", retval);
-    assert_eq!(retval, 3.1415);
+    assert_eq!(retval, 2.75);
 }
 
 #[test]

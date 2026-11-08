@@ -172,3 +172,58 @@ fn repeated_evaluation_is_stable() {
         assert_eq!(value, 42i64);
     }
 }
+
+/// grammar 允许、但实现尚未覆盖（或含非法字面量）的输入必须得到编译错误，
+/// 不能在解析器 / 语义分析 / lowering 里 panic。
+#[test]
+fn invalid_scripts_never_panic() {
+    const BAD_SCRIPTS: &[&str] = &[
+        "中",                               // 非 ASCII 起始 token
+        "let 中 = 1;",                      // 错误 span 落在 UTF-8 字符内部
+        "return 999999999999999999999999;", // 整数字面量溢出
+        "return -999999999999999999999999;",
+        "return 1 + 999999999999999999999999;",
+        "1 += 999999999999999999999999;",
+        "return 1 ^ 2;",                     // grammar 有、BinOp 没有
+        "return 1 as 1;",                    // AST 有、lowering 没有
+        "return self::foo;",                 // path 表达式
+        "return (1, 2);",                    // tuple 表达式
+        "1 = 2;",                            // 非法左值
+        "let a = [1]; a[zz] = 2;",           // index 位置的未定义标识符
+        "let f = |x| { return zz; };",       // 闭包体未分析
+        "let f = |x| { return NoSuch{}; };", // 闭包体里的未定义结构体
+        "for 1 in [1] {}",                   // literal pattern
+        "enum E {}",                         // 空 enum 声明
+    ];
+
+    for script in BAD_SCRIPTS {
+        assert!(
+            matches!(
+                Interpreter::eval(script, Environment::new()),
+                Err(Error::Compile(_))
+            ),
+            "expected a compile error, got a panic or a value: {script:?}"
+        );
+    }
+}
+
+#[test]
+fn compile_errors_report_real_line_column_and_utf8_span() {
+    let err = match Interpreter::eval("let a = 1;\nlet b = ;", Environment::new()) {
+        Err(Error::Compile(err)) => err,
+        other => panic!("expected compile error, got {other:?}"),
+    };
+    let text = err.to_string();
+    assert!(text.contains("line: 2"), "{text}");
+    assert!(text.contains("col: 9"), "{text}");
+
+    // 旧实现在 `&input[pos..pos+1]` 上切多字节字符会直接 panic。
+    let err = match Interpreter::eval("let 中 = 1;", Environment::new()) {
+        Err(Error::Compile(err)) => err,
+        other => panic!("expected compile error, got {other:?}"),
+    };
+    let text = err.to_string();
+    assert!(text.contains("Error on 中"), "{text}");
+    assert!(text.contains("line: 1"), "{text}");
+    assert!(text.contains("col: 5"), "{text}");
+}

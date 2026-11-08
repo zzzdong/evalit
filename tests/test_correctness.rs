@@ -334,3 +334,113 @@ fn interpreter_and_typed_eval_agree_on_a_set_of_programs() {
         assert_eq!(via_interpreter, via_typed, "{script}");
     }
 }
+
+// ---------------------------------------------------------------------------
+// 5. 审查回归：字面量、短路求值、循环控制流、闭包与函数声明
+// ---------------------------------------------------------------------------
+
+#[test]
+fn string_and_char_literals_are_unescaped_correctly() {
+    let strings: &[(&str, &str)] = &[
+        (r#"return "a\"";"#, "a\""),
+        (r#"return "a\nb\t\\";"#, "a\nb\t\\"),
+        (r#"return "中\u{6587}";"#, "中文"),
+        (r#"return "\'";"#, "'"),
+    ];
+    for (script, expected) in strings {
+        let value = eval::<String>(script, Environment::new())
+            .unwrap_or_else(|err| panic!("{script}: {err:?}"))
+            .unwrap();
+        assert_eq!(value, *expected, "{script}");
+    }
+
+    // 旧实现取的是字面量开头的单引号，所有字符都成了 '\''。
+    let chars: &[(&str, char)] = &[
+        ("return 'a';", 'a'),
+        (r"return '\n';", '\n'),
+        ("return '中';", '中'),
+        (r"return '\'';", '\''),
+        (r"return '\u{4e2d}';", '中'),
+    ];
+    for (script, expected) in chars {
+        let value = eval::<char>(script, Environment::new())
+            .unwrap_or_else(|err| panic!("{script}: {err:?}"))
+            .unwrap();
+        assert_eq!(value, *expected, "{script}");
+    }
+}
+
+#[test]
+fn logical_operators_short_circuit() {
+    let cases: &[(&str, bool)] = &[
+        ("return false && true;", false),
+        ("return true || false;", true),
+        ("return true && 2 > 1;", true),
+        ("return false || 2 > 1;", true),
+        ("return false && (1 / 0 == 0);", false),
+        ("return true || (1 / 0 == 0);", true),
+        ("let a = [1]; return false && a[9] == 1;", false),
+        ("let a = [1]; return true || a[9] == 1;", true),
+    ];
+    for (script, expected) in cases {
+        let value = eval::<bool>(script, Environment::new())
+            .unwrap_or_else(|err| panic!("{script}: {err:?}"))
+            .unwrap();
+        assert_eq!(value, *expected, "{script}");
+    }
+}
+
+#[test]
+fn continue_in_while_reevaluates_condition_and_pops_loop_context() {
+    // 旧实现把 continue 指向循环体开头，条件不再求值，脚本死循环。
+    assert_eq!(
+        eval_int("let i = 0; while i < 5 { i = i + 1; continue; } return i;"),
+        5
+    );
+    // while 不弹 loop context 时，嵌套在 for 里会污染外层 continue 的目标。
+    assert_eq!(
+        eval_int(
+            "let i = 0; for j in 0..=2 { let k = 0; while k < 1 { k = k + 1; } i = i + 1; continue; } return i;"
+        ),
+        3
+    );
+}
+
+#[test]
+fn distinct_closures_keep_distinct_bodies() {
+    // 匿名闭包签名相同会共用 FunctionId，后一个函数体覆盖前一个。
+    assert_eq!(
+        eval_int("let f = || { return 1; }; let g = || { return 2; }; return f() + g() * 10;"),
+        21
+    );
+}
+
+#[test]
+fn calls_with_more_than_eight_arguments_work() {
+    assert_eq!(
+        eval_int(
+            "fn f(a,b,c,d,e,f,g,h,i) { return a+b+c+d+e+f+g+h+i; } return f(1,2,3,4,5,6,7,8,9);"
+        ),
+        45
+    );
+}
+
+#[test]
+fn functions_can_be_referenced_before_definition() {
+    assert_eq!(eval_int("let g = f; fn f() { return 7; } return g();"), 7);
+}
+
+#[test]
+fn grammar_constructs_without_runtime_support_do_not_generate_illegal_bytecode() {
+    for script in [
+        "if true { 1 } else { 2 }",        // block 里的裸表达式
+        "struct S {}",                     // 空字段列表
+        "if true { struct S { a: int } }", // 块内 item
+        "let a: null; return a;",          // type_null
+    ] {
+        assert!(
+            Interpreter::eval(script, Environment::new()).is_ok(),
+            "should evaluate without panicking: {script}"
+        );
+    }
+}

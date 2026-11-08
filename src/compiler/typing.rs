@@ -329,7 +329,7 @@ impl TypeContext {
     /// Try to analyze type expressions when possible, otherwise return Type::Unknown.
     fn try_resolve_type(&self, type_expr: &TypeExpression) -> Type {
         match type_expr {
-            TypeExpression::Any => Type::Any,
+            TypeExpression::Any | TypeExpression::Null => Type::Any,
             TypeExpression::Boolean => Type::Boolean,
             TypeExpression::Byte => Type::Byte,
             TypeExpression::Integer => Type::Integer,
@@ -346,7 +346,6 @@ impl TypeContext {
                 },
                 None => Type::Unknown,
             },
-            _ => Type::Unknown,
         }
     }
 

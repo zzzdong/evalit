@@ -62,24 +62,21 @@ impl Span {
         self.start == self.end
     }
 
+    /// `start` 是 pest 给的**字节偏移**；返回 1-based 的 (行, 字符列)。
+    ///
+    /// 旧实现用 `lines()` 累加 `line.len()`，漏掉换行符本身，第二行起偏移
+    /// 逐行漂移，且列号是字节下标。这里直接对 `source[..start]` 计数。
     pub fn line_col(&self, source: &str) -> Option<(usize, usize)> {
-        let mut offset = 0;
-        for (l, line) in source.lines().enumerate() {
-            if self.start < offset + line.len() {
-                let off = self.start - offset;
-                let mut line_off = 0;
-                for (c, char) in line.char_indices() {
-                    if line_off == off {
-                        return Some((l + 1, c));
-                    }
-                    line_off += char.len_utf8();
-                }
-            }
-
-            offset += line.len();
+        let start = self.start;
+        if start > source.len() || !source.is_char_boundary(start) {
+            return None;
         }
 
-        None
+        let prefix = &source[..start];
+        let line = prefix.bytes().filter(|&b| b == b'\n').count() + 1;
+        let line_start = prefix.rfind('\n').map_or(0, |pos| pos + 1);
+        let col = source[line_start..start].chars().count() + 1;
+        Some((line, col))
     }
 }
 
@@ -201,6 +198,9 @@ pub struct ReturnStatement {
 #[derive(Debug, Clone, PartialEq)]
 pub enum TypeExpression {
     Any,
+    /// grammar 里的 `type_null`；类型系统没有独立的 Null 类型，与 `null`
+    /// 字面量一样归到 `Type::Any`。
+    Null,
     Boolean,
     Byte,
     Integer,

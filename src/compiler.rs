@@ -64,18 +64,30 @@ pub struct CompileError<'i> {
 
 impl<'i> CompileError<'i> {
     pub fn new(input: &'i str, error: ErrorKind) -> Self {
-        let (line_col, span) = match error.line_col(input) {
-            Some(line_col) => {
-                let span = error.span();
-                (line_col, &input[span.start..span.end])
-            }
-            None => (LineCol { line: 0, col: 0 }, &input[0..0]),
-        };
+        let line_col = error.line_col(input).unwrap_or(LineCol { line: 0, col: 0 });
+        let error_span = error.span();
+        let span = span_text(input, error_span.start, error_span.end);
         Self {
             kind: error,
             span,
             line_col,
         }
+    }
+}
+
+/// 错误 span 是字节偏移，pest 的 `Pos(n)` 错误用 `(n, n+1)` 表示「出错处
+/// 的一个字符」。多字节 UTF-8 会让 `n+1` 落在字符内部，输入末尾还会越界，
+/// 直接切片会 panic。这里统一收敛到合法的字符边界。
+fn span_text(input: &str, start: usize, end: usize) -> &str {
+    if let Some(text) = input.get(start..end.max(start)) {
+        return text;
+    }
+    let Some(rest) = input.get(start..) else {
+        return "";
+    };
+    match rest.chars().next() {
+        Some(c) => &rest[..c.len_utf8()],
+        None => "",
     }
 }
 

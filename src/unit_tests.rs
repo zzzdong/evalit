@@ -363,7 +363,7 @@ mod ir_cfg {
 
 mod ir_unit {
     use crate::bytecode::{Constant, FunctionId};
-    use crate::compiler::ir::{ControlFlowGraph, FuncParam, FuncSignature, IrUnit};
+    use crate::compiler::ir::{ControlFlowGraph, FuncParam, FuncSignature, IrUnit, Name};
 
     #[test]
     fn constants_are_deduplicated_with_stable_ids() {
@@ -388,6 +388,16 @@ mod ir_unit {
         let other = FuncSignature::new("g", vec![FuncParam::new("x")]);
         let second = unit.declare_function(other);
         assert_eq!(second, FunctionId::new(1));
+        assert_eq!(unit.functions.len(), 2);
+    }
+
+    #[test]
+    fn anonymous_closures_with_identical_signatures_get_distinct_ids() {
+        let mut unit = IrUnit::new();
+        let sig = FuncSignature::new(Name::anonymous(), vec![FuncParam::new("x")]);
+        let first = unit.declare_function(sig.clone());
+        let second = unit.declare_function(sig);
+        assert_ne!(first, second, "两个闭包不能共用同一份函数体");
         assert_eq!(unit.functions.len(), 2);
     }
 
@@ -430,9 +440,22 @@ mod syntax {
 
     #[test]
     fn span_line_col_on_a_single_line() {
-        assert_eq!(Span::new(0, 1).line_col("abc"), Some((1, 0)));
-        assert_eq!(Span::new(2, 3).line_col("abc"), Some((1, 2)));
-        assert_eq!(Span::new(0, 0).line_col(""), None);
+        assert_eq!(Span::new(0, 1).line_col("abc"), Some((1, 1)));
+        assert_eq!(Span::new(2, 3).line_col("abc"), Some((1, 3)));
+        assert_eq!(Span::new(3, 3).line_col("abc"), Some((1, 4)));
+        assert_eq!(Span::new(0, 0).line_col(""), Some((1, 1)));
+    }
+
+    #[test]
+    fn span_line_col_handles_multiple_lines_and_utf8() {
+        // 旧实现用 lines() 累加长度，漏掉换行符，第二行起列号逐行漂移。
+        assert_eq!(Span::new(4, 4).line_col("abc\ndef"), Some((2, 1)));
+        assert_eq!(Span::new(6, 6).line_col("abc\ndef"), Some((2, 3)));
+        assert_eq!(Span::new(3, 3).line_col("a\r\nb"), Some((2, 1)));
+        // 列号按字符计，不是字节；多字节字符后的偏移仍然有效。
+        assert_eq!(Span::new(4, 4).line_col("中x"), Some((1, 3)));
+        assert_eq!(Span::new(1, 1).line_col("中x"), None);
+        assert_eq!(Span::new(99, 99).line_col("abc"), None);
     }
 
     #[test]

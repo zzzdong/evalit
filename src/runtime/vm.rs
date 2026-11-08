@@ -349,8 +349,10 @@ impl VM {
                 let lhs = self.get_value(operands[1])?;
                 let rhs = self.get_value(operands[2])?;
                 let eq = lhs.value().as_object().equal(&rhs.value())?;
-                let not_eq = !*eq.downcast_ref::<bool>().unwrap();
-                self.set_value(operands[0], Value::new(not_eq))?;
+                let Some(equal) = eq.downcast_ref::<bool>() else {
+                    return Err(RuntimeError::invalid_type::<bool>(&eq));
+                };
+                self.set_value(operands[0], Value::new(!*equal))?;
             }
 
             // Load Instructions
@@ -421,7 +423,7 @@ impl VM {
                 let mut st_obj = struct_object.value_mut();
                 let struct_object = st_obj
                     .downcast_mut::<StructObject>()
-                    .ok_or(RuntimeError::invalid_type::<Vec<ValueRef>>(st_cloned))?;
+                    .ok_or(RuntimeError::invalid_type::<StructObject>(st_cloned))?;
                 let field_name = self.load_string(operands[1])?;
                 struct_object.make_field(field_name, field_value);
             }

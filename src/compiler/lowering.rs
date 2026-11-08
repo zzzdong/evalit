@@ -11,7 +11,6 @@ use crate::compiler::typing::{FunctionDef, StructDef};
 use crate::{
     Environment,
     bytecode::{FunctionId, Opcode, Primitive},
-    runtime::EnvVariable,
 };
 
 struct LoopContext {
@@ -145,11 +144,10 @@ impl<'a> ASTLower<'a> {
     }
 
     fn lower_item_stmt(&mut self, item: ItemStatement) {
-        match item {
-            ItemStatement::Function(fn_item) => {
-                self.lower_function_item(fn_item);
-            }
-            _ => unimplemented!("statement {:?}", item),
+        // struct/enum 声明不产生运行时代码，类型信息已由 TypeContext 收集；
+        // 与 lower_program 顶层的处理保持一致，不要在这里 unimplemented!。
+        if let ItemStatement::Function(fn_item) = item {
+            self.lower_function_item(fn_item);
         }
     }
 
@@ -281,7 +279,9 @@ impl<'a> ASTLower<'a> {
         let body_blk = self.create_block("while_body");
         let after_blk = self.create_block(None);
 
-        self.enter_loop_context(after_blk, body_blk);
+        // continue 必须回到条件块重新求值；指到 body_blk 会让条件永远不再
+        // 被检查，`while i < 3 { i += 1; continue; }` 直接死循环。
+        self.enter_loop_context(after_blk, cond_blk);
 
         self.builder.jump(cond_blk);
         self.builder.switch_to_block(cond_blk);
@@ -295,6 +295,9 @@ impl<'a> ASTLower<'a> {
 
         self.builder.jump(cond_blk);
 
+        // 与 for/loop 一致地弹出循环上下文，否则后续 break/continue 会拿到
+        // 已结束的 while 的目标块。
+        self.leave_loop_context();
         self.builder.switch_to_block(after_blk);
     }
 
@@ -519,17 +522,15 @@ impl<'a> ASTLower<'a> {
                     Some(func) => self.builder.call_function(func.id, args),
                     None => match self.symbols.lookup(ident.name()) {
                         Some(var) => self.builder.make_call(var.0, args),
-                        None => match self.env.get(ident.name()) {
-                            Some(EnvVariable::Function(_)) => {
-                                let callable = self
-                                    .builder
-                                    .load_external_variable(ident.name().to_string());
-                                self.builder.make_call_native(callable, args)
-                            }
-                            _ => {
-                                panic!("unknown identifier: {}", ident.name());
-                            }
-                        },
+                        // 环境变量既可能是 native 函数也可能是普通值：统一发
+                        // CallNative，由 VM 在运行时报 InvalidOperand，而不是
+                        // 在编译期 panic。名字不存在时 LoadEnv 也会报错。
+                        None => {
+                            let callable = self
+                                .builder
+                                .load_external_variable(ident.name().to_string());
+                            self.builder.make_call_native(callable, args)
+                        }
                     },
                 }
             }
@@ -635,6 +636,12 @@ impl<'a> ASTLower<'a> {
                         .builder
                         .load_external_variable(identifier.name().to_string());
                 }
+                // 函数在 lower_program 开头统一声明（TypeContext 先收集了全部
+                // 定义），因此 `let g = f; fn f() {}` 这类前向引用在这里能找到
+                // FunctionId，不需要等 lower_function_item 填 symbols。
+                if let Some(func) = self.builder.module().find_function(identifier.name()) {
+                    return Value::Function(func.id);
+                }
                 panic!("Undefined identifier: {}", identifier.name())
             }
         }
@@ -654,6 +661,12 @@ impl<'a> ASTLower<'a> {
     fn lower_binary(&mut self, expr: BinaryExpression) -> Value {
         let BinaryExpression { op, lhs, rhs } = expr;
 
+        // `&&` / `||` 必须短路：右操作数放进独立的块，不能和左操作数一起
+        // 无条件求值（否则 `false && a[9] == 1` 仍会越界）。
+        if matches!(op, BinOp::LogicAnd | BinOp::LogicOr) {
+            return self.lower_short_circuit(op, *lhs, *rhs);
+        }
+
         let lhs = self.lower_expression(*lhs);
         let rhs = self.lower_expression(*rhs);
 
@@ -671,9 +684,6 @@ impl<'a> ASTLower<'a> {
             BinOp::Less => self.builder.binop(Opcode::Less, lhs, rhs),
             BinOp::LessEqual => self.builder.binop(Opcode::LessEqual, lhs, rhs),
 
-            BinOp::LogicAnd => self.builder.binop(Opcode::And, lhs, rhs),
-            BinOp::LogicOr => self.builder.binop(Opcode::Or, lhs, rhs),
-
             BinOp::Range => self.builder.make_range(Opcode::Range, Some(lhs), Some(rhs)),
             BinOp::RangeInclusive => {
                 self.builder
@@ -682,6 +692,57 @@ impl<'a> ASTLower<'a> {
 
             _ => unimplemented!("{:?}", op),
         }
+    }
+
+    /// 短路逻辑的 CFG：
+    ///
+    /// ```text
+    /// entry:      cond = lhs; br_if(cond, rhs_blk, short_blk)   // && ; || 反过来
+    /// rhs_blk:    result = rhs;      jump(merge_blk)
+    /// short_blk:  result = false/true; jump(merge_blk)
+    /// merge_blk:  使用 result
+    /// ```
+    ///
+    /// `result` 在两个前驱里各定义一次，SSA 阶段会在 merge_blk 自动插入
+    /// 块参数 phi；codegen 只经固定栈槽交接，与 if/else 的跨块赋值同一套机制。
+    fn lower_short_circuit(
+        &mut self,
+        op: BinOp,
+        lhs: ExpressionNode,
+        rhs: ExpressionNode,
+    ) -> Value {
+        let cond = self.lower_expression(lhs);
+        let result = self.builder.alloc();
+
+        let rhs_blk = self.create_block("logic_rhs");
+        let short_blk = self.create_block("logic_short");
+        let merge_blk = self.create_block("logic_merge");
+
+        let is_or = op == BinOp::LogicOr;
+        let (true_blk, false_blk) = if is_or {
+            (short_blk, rhs_blk)
+        } else {
+            (rhs_blk, short_blk)
+        };
+        self.builder.br_if(cond, true_blk, false_blk);
+
+        self.builder.switch_to_block(rhs_blk);
+        let rhs = self.lower_expression(rhs);
+        // 保留 Opcode::And/Or 的运行时类型检查：Any 值（如 null）参与逻辑
+        // 运算必须被拒绝，不能直接把 rhs 当成结果。此时 cond 已经是 bool
+        // （BrIf 检查过），所以结果就是 rhs 本身，但类型错误仍会报出来。
+        let rhs_op = if is_or { Opcode::Or } else { Opcode::And };
+        let value = self.builder.binop(rhs_op, cond, rhs);
+        self.builder.assign(result, value);
+        self.builder.jump(merge_blk);
+
+        self.builder.switch_to_block(short_blk);
+        self.builder
+            .assign(result, Value::Primitive(Primitive::Boolean(is_or)));
+        self.builder.jump(merge_blk);
+
+        self.builder.switch_to_block(merge_blk);
+        result
     }
 
     fn declare_function(&mut self, func: &FunctionDef) -> FunctionId {

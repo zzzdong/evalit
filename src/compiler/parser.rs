@@ -204,9 +204,11 @@ fn parse_enum_item(pair: Pair<Rule>) -> EnumItem {
 
     let name = pairs.next().unwrap().as_str().to_string();
 
-    let variants = pairs.next().unwrap().into_inner();
-
-    let variants = variants.map(parse_enum_field).collect();
+    // 字段列表在 grammar 里是可选的（`enum E {}`），没有 inner pair 时不能 unwrap。
+    let variants = match pairs.next() {
+        Some(list) => list.into_inner().map(parse_enum_field).collect(),
+        None => Vec::new(),
+    };
 
     EnumItem { name, variants }
 }
@@ -227,11 +229,11 @@ fn parse_struct_item(pair: Pair<Rule>) -> StructItem {
     let mut pairs = pair.into_inner();
 
     let name = pairs.next().unwrap().as_str().to_string();
-    let fields = pairs.next().unwrap();
-    let fields = fields
-        .into_inner()
-        .map(|field| parse_struct_field(field))
-        .collect();
+    // `struct S {}` 的字段列表同样可选。
+    let fields = match pairs.next() {
+        Some(list) => list.into_inner().map(parse_struct_field).collect(),
+        None => Vec::new(),
+    };
 
     StructItem { name, fields }
 }
@@ -391,10 +393,20 @@ fn parse_pattern(pair: Pair<Rule>) -> Result<Pattern> {
 }
 
 fn parse_block(pair: Pair<Rule>) -> Result<BlockStatement> {
-    let statements = pair
-        .into_inner()
-        .map(parse_statement)
-        .collect::<Result<_>>()?;
+    let mut statements = Vec::new();
+    for inner in pair.into_inner() {
+        // grammar 的 block 允许不带分号的裸 expression；它不是 statement 包装，
+        // 直接交给 parse_statement 会落到 `unreachable!` 而 panic。
+        if inner.as_rule() == Rule::expression {
+            let span = Span::from_pair(&inner);
+            statements.push(AstNode::new(
+                Statement::Expression(parse_expression(inner)?),
+                span,
+            ));
+        } else {
+            statements.push(parse_statement(inner)?);
+        }
+    }
     Ok(BlockStatement(statements))
 }
 
@@ -403,6 +415,7 @@ fn parse_type_expression(pair: Pair<Rule>) -> TypeExpression {
 
     match pair.as_rule() {
         Rule::type_any => TypeExpression::Any,
+        Rule::type_null => TypeExpression::Null,
         Rule::type_bool => TypeExpression::Boolean,
         Rule::type_byte => TypeExpression::Byte,
         Rule::type_int => TypeExpression::Integer,
@@ -447,13 +460,19 @@ fn parse_primary(pair: Pair<Rule>) -> Result<ExpressionNode> {
 }
 
 fn parse_prefix(op: Pair<Rule>, rhs: Result<ExpressionNode>) -> Result<ExpressionNode> {
-    let span = Span::from_pair(&op).merge(&rhs.as_ref().unwrap().span());
+    // Pratt 回调收到的是 Result：子表达式解析失败（例如整数字面量溢出）时
+    // 必须先把错误传出去，不能在这里 unwrap 造成 panic。
+    let rhs = rhs?;
+    let span = Span::from_pair(&op).merge(&rhs.span());
 
-    let op = op.as_str().parse::<PrefixOp>().unwrap();
+    let prefix_op = op
+        .as_str()
+        .parse::<PrefixOp>()
+        .map_err(|err| ParseError::with_message(op.as_span(), err.to_string()))?;
 
     let expr = Expression::Prefix(PrefixExpression {
-        op,
-        rhs: Box::new(rhs?),
+        op: prefix_op,
+        rhs: Box::new(rhs),
     });
 
     Ok(AstNode::new(expr, span))
@@ -464,62 +483,65 @@ fn parse_infix(
     op: Pair<Rule>,
     rhs: Result<ExpressionNode>,
 ) -> Result<ExpressionNode> {
-    let span = lhs
-        .as_ref()
-        .unwrap()
-        .span()
-        .merge(&rhs.as_ref().unwrap().span());
+    let lhs = lhs?;
+    let rhs = rhs?;
+    let span = lhs.span().merge(&rhs.span());
 
     let expr = match op.as_rule() {
-        Rule::assign_operator => {
-            let lhs_expr = lhs?;
-            let rhs_expr = rhs?;
-
-            match &lhs_expr.node {
-                Expression::PropertyGet(PropertyGetExpression { object, property }) => {
-                    Expression::PropertySet(PropertySetExpression {
-                        object: object.clone(),
-                        property: property.clone(),
-                        value: Box::new(rhs_expr),
-                    })
-                }
-                Expression::IndexGet(IndexGetExpression { object, index }) => {
-                    Expression::IndexSet(IndexSetExpression {
-                        object: object.clone(),
-                        index: index.clone(),
-
-                        value: Box::new(rhs_expr),
-                    })
-                }
-                _ => Expression::Assign(AssignExpression {
-                    object: Box::new(lhs_expr),
-                    value: Box::new(rhs_expr),
-                }),
+        Rule::assign_operator => match &lhs.node {
+            Expression::PropertyGet(PropertyGetExpression { object, property }) => {
+                Expression::PropertySet(PropertySetExpression {
+                    object: object.clone(),
+                    property: property.clone(),
+                    value: Box::new(rhs),
+                })
             }
-        }
+            Expression::IndexGet(IndexGetExpression { object, index }) => {
+                Expression::IndexSet(IndexSetExpression {
+                    object: object.clone(),
+                    index: index.clone(),
+
+                    value: Box::new(rhs),
+                })
+            }
+            _ => Expression::Assign(AssignExpression {
+                object: Box::new(lhs),
+                value: Box::new(rhs),
+            }),
+        },
         Rule::add_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Add),
         Rule::sub_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Sub),
         Rule::mul_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Mul),
         Rule::div_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Div),
         Rule::rem_assign_operator => create_assign_binary_expression(lhs, rhs, span, BinOp::Rem),
-        _ => Expression::Binary(BinaryExpression {
-            op: op.as_str().parse::<BinOp>().unwrap(),
-            lhs: Box::new(lhs?),
-            rhs: Box::new(rhs?),
-        }),
+        _ => {
+            // grammar 里还有 pow 等尚未实现的运算符，BinOp::from_str 会失败；
+            // 显式报编译错误，不要让 unwrap 把解释器带崩。
+            let bin_op = op.as_str().parse::<BinOp>().map_err(|err| {
+                ParseError::with_message(
+                    op.as_span(),
+                    format!("unsupported binary operator `{}`: {err}", op.as_str()),
+                )
+            })?;
+            Expression::Binary(BinaryExpression {
+                op: bin_op,
+                lhs: Box::new(lhs),
+                rhs: Box::new(rhs),
+            })
+        }
     };
 
     Ok(AstNode::new(expr, span))
 }
 
 fn create_assign_binary_expression(
-    lhs: Result<ExpressionNode>,
-    rhs: Result<ExpressionNode>,
+    lhs: ExpressionNode,
+    rhs: ExpressionNode,
     span: Span,
     bin_op: BinOp,
 ) -> Expression {
-    let lhs_expr = lhs.unwrap();
-    let rhs_expr = rhs.unwrap();
+    let lhs_expr = lhs;
+    let rhs_expr = rhs;
 
     if let Expression::PropertyGet(PropertyGetExpression { object, property }) =
         &lhs_expr.clone().node
@@ -557,10 +579,10 @@ fn create_assign_binary_expression(
 }
 
 fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<ExpressionNode> {
-    let span = lhs.as_ref().unwrap().span();
-    let span = span.merge(&Span::from_pair(&op));
+    let lhs = lhs?;
+    let span = lhs.span().merge(&Span::from_pair(&op));
 
-    let object = Box::new(lhs?);
+    let object = Box::new(lhs);
 
     let expr = match op.as_rule() {
         Rule::try_operator => Expression::Try(object),
@@ -691,8 +713,6 @@ fn parse_postfix(lhs: Result<ExpressionNode>, op: Pair<Rule>) -> Result<Expressi
 }
 
 fn parse_struct_expression(pair: Pair<Rule>) -> Result<ExpressionNode> {
-    println!("parse_struct_expression, {pair:?}");
-
     let span = Span::from_pair(&pair);
 
     let mut pairs = pair.into_inner();
@@ -717,8 +737,6 @@ fn parse_struct_expression(pair: Pair<Rule>) -> Result<ExpressionNode> {
 }
 
 fn parse_struct_expression_field(pair: Pair<Rule>) -> Result<StructExprField> {
-    println!("parse_struct_expression_field, {pair:?}");
-
     let mut pairs = pair.into_inner();
 
     let name = pairs.next().unwrap();
@@ -787,6 +805,7 @@ fn unescape_string(s: &str) -> String {
                 Some('t') => result.push('\t'),
                 Some('r') => result.push('\r'),
                 Some('"') => result.push('"'),
+                Some('\'') => result.push('\''),
                 Some('b') => result.push('\x08'), // 退格符
                 Some('f') => result.push('\x0C'), // 换页符
                 Some('0') => result.push('\0'),   // 空字符
@@ -848,15 +867,33 @@ fn parse_literal(pair: Pair<Rule>) -> Result<LiteralExpression> {
             |err| ParseError::with_message(value.as_span(), format!("parse float failed, {err}")),
         )?)),
         Rule::string => {
-            let s = value.as_str().trim_matches('"');
-            // unescape string
-            let s = unescape_string(s);
-
-            Ok(LiteralExpression::String(s))
+            // grammar 是 quote ~ inner_str ~ quote：精确剥掉首尾各一个引号。
+            // trim_matches('"') 会把 `"a\""` 结尾的转义引号一起吃掉。
+            let raw = value.as_str();
+            let inner = raw.get(1..raw.len().saturating_sub(1)).unwrap_or("");
+            Ok(LiteralExpression::String(unescape_string(inner)))
         }
-        Rule::character => Ok(LiteralExpression::Char(
-            value.as_str().chars().next().unwrap(),
-        )),
+        Rule::character => {
+            // 旧实现取 `value.as_str().chars().next()`，拿到的是开头的单引号，
+            // 且完全不做转义；所有字符字面量都变成 '\''。
+            let raw = value.as_str();
+            let inner = raw.get(1..raw.len().saturating_sub(1)).unwrap_or("");
+            let unescaped = unescape_string(inner);
+            let mut chars = unescaped.chars();
+            let Some(c) = chars.next() else {
+                return Err(ParseError::with_message(
+                    value.as_span(),
+                    "empty character literal",
+                ));
+            };
+            if chars.next().is_some() {
+                return Err(ParseError::with_message(
+                    value.as_span(),
+                    "character literal must contain exactly one character",
+                ));
+            }
+            Ok(LiteralExpression::Char(c))
+        }
         _ => unreachable!("unknown literal: {:?}", value),
     }
 }
@@ -920,16 +957,14 @@ fn parse_simple_path(pair: Pair<Rule>) -> Result<PathExpression> {
 }
 
 fn parse_path_segment(pair: Pair<Rule>) -> Result<PathSeg> {
-    let mut pairs = pair.into_inner();
-
-    let name = pairs.next().unwrap();
-    match name.as_str() {
-        "self" => return Ok(PathSeg::Self_),
-        "super" => return Ok(PathSeg::Super),
-        _ => {}
-    }
-
-    Ok(PathSeg::Name(name.as_str().to_string()))
+    // `path_seg` 的 self/super/crate 是字面量，不产生 inner pair；
+    // 直接读整个 pair 的文本，避免 `pairs.next().unwrap()` panic。
+    Ok(match pair.as_str() {
+        "self" => PathSeg::Self_,
+        "super" => PathSeg::Super,
+        "crate" => PathSeg::Crate,
+        name => PathSeg::Name(name.to_string()),
+    })
 }
 
 #[cfg(test)]

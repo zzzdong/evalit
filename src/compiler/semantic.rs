@@ -32,6 +32,7 @@ impl From<ErrKind> for SemanticError {
 #[derive(Debug, Clone)]
 pub enum ErrKind {
     UndefinedVariable(String),
+    UndefinedType(String),
     BreakOutsideLoop,
     ContinueOutsideLoop,
     /// 语法可解析、但 lowering/VM 尚未实现的特性：编译期明确拒绝，不让它
@@ -195,6 +196,7 @@ impl<'a> SemanticAnalyzer<'a> {
         self.analyze_expression(expr)?;
 
         match pattern {
+            Pattern::Wildcard => {}
             Pattern::Identifier(ident) => {
                 // 将变量添加到符号表中
                 self.symbol_table.insert(ident.name(), ());
@@ -204,7 +206,10 @@ impl<'a> SemanticAnalyzer<'a> {
                     self.analyze_pattern(pattern, expr)?;
                 }
             }
-            _ => {}
+            // `for 1 in ...` 会落到 lower_pattern 的 unimplemented!。
+            Pattern::Literal(_) => {
+                return Err(ErrKind::Unsupported("literal pattern").into());
+            }
         }
 
         Ok(())
@@ -296,10 +301,13 @@ impl<'a> SemanticAnalyzer<'a> {
             Expression::Try(expr) => self.analyze_try_expression(expr),
             Expression::Await(expr) => self.analyze_await_expression(expr),
             Expression::CallMethod(expr) => self.analyze_call_method_expression(expr),
-            _ => {
-                // 处理其他未实现的表达式类型
-                Ok(())
-            }
+            Expression::Closure(expr) => self.analyze_closure_expression(expr),
+            Expression::StructExpr(expr) => self.analyze_struct_expression(expr),
+            Expression::Literal(_) | Expression::Environment(_) => Ok(()),
+            // grammar 可解析但 lowering 没有实现：在编译期明确拒绝，避免
+            // 落到 `unimplemented!` 变成 panic。
+            Expression::Path(_) => Err(ErrKind::Unsupported("path expression").into()),
+            Expression::Tuple(_) => Err(ErrKind::Unsupported("tuple expression").into()),
         };
 
         ret.map_err(|err| {
@@ -325,6 +333,12 @@ impl<'a> SemanticAnalyzer<'a> {
     }
 
     fn analyze_binary_expression(&mut self, expr: &BinaryExpression) -> Result<(), SemanticError> {
+        // `as` / `::` 有 AST 但 lowering 没有实现；类型检查对 Any 会提前放行，
+        // 必须在语义层先挡住，否则会落到 `unimplemented!`。
+        if matches!(expr.op, BinOp::As | BinOp::Path) {
+            return Err(ErrKind::Unsupported("binary operator (`as` / `::`)").into());
+        }
+
         self.analyze_expression(&expr.lhs)?;
         self.analyze_expression(&expr.rhs)?;
 
@@ -380,6 +394,7 @@ impl<'a> SemanticAnalyzer<'a> {
         expr: &IndexSetExpression,
     ) -> Result<(), SemanticError> {
         self.analyze_expression(&expr.object)?;
+        self.analyze_expression(&expr.index)?;
         self.analyze_expression(&expr.value)?;
 
         Ok(())
@@ -404,6 +419,12 @@ impl<'a> SemanticAnalyzer<'a> {
     }
 
     fn analyze_assign_expression(&mut self, expr: &AssignExpression) -> Result<(), SemanticError> {
+        // 只有标识符能作为赋值目标。`1 = 2` 之类会生成以 Primitive 为 dst 的
+        // 非法字节码，直到运行期才报 InvalidOperand。
+        if !matches!(expr.object.node(), Expression::Identifier(_)) {
+            return Err(ErrKind::Unsupported("non-identifier assignment target").into());
+        }
+
         self.analyze_expression(&expr.object)?;
         self.analyze_expression(&expr.value)?;
 
@@ -452,6 +473,33 @@ impl<'a> SemanticAnalyzer<'a> {
             self.analyze_expression(arg)?;
         }
 
+        Ok(())
+    }
+
+    /// 闭包体此前完全不分析，里面的未定义标识符会一路走到 lowering 的
+    /// `panic!("Undefined identifier")`；这里给参数开一个独立作用域再递归。
+    fn analyze_closure_expression(
+        &mut self,
+        closure: &ClosureExpression,
+    ) -> Result<(), SemanticError> {
+        self.symbol_table.enter_scope();
+        for param in &closure.params {
+            self.symbol_table.insert(&param.name, ());
+        }
+        let result = self.analyze_block(&closure.body);
+        self.symbol_table.leave_scope();
+        result
+    }
+
+    fn analyze_struct_expression(&mut self, expr: &StructExpression) -> Result<(), SemanticError> {
+        // 类型检查对闭包体不递归，`NoSuch{}` 会绕过 check_struct_expr 直达
+        // lowering 的 `expect("struct not found")`；这里补一道兜底。
+        if self.type_cx.get_type_def(expr.name.node()).is_none() {
+            return Err(ErrKind::UndefinedType(expr.name.node().clone()).into());
+        }
+        for field in &expr.fields {
+            self.analyze_expression(&field.value)?;
+        }
         Ok(())
     }
 }
