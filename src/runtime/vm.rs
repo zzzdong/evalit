@@ -220,7 +220,11 @@ impl VM {
                     *self.state.rbp_mut() = self.state.rsp();
                 }
 
-                _ => unimplemented!("unsupported instruction:{inst:?}"),
+                _ => {
+                    return Err(RuntimeError::internal(format!(
+                        "unsupported instruction: {inst:?}"
+                    )));
+                }
             },
             Opcode::PushC => match operands[0] {
                 Operand::Register(Register::Rsp) => {
@@ -229,7 +233,11 @@ impl VM {
                 Operand::Register(Register::Rbp) => {
                     self.state.pushc(self.state.rbp())?;
                 }
-                _ => unimplemented!("unsupported instruction:{inst:?}"),
+                _ => {
+                    return Err(RuntimeError::internal(format!(
+                        "unsupported instruction: {inst:?}"
+                    )));
+                }
             },
             Opcode::PopC => match operands[0] {
                 Operand::Register(Register::Rsp) => {
@@ -240,19 +248,31 @@ impl VM {
                     let value = self.state.popc()?;
                     *self.state.rbp_mut() = value;
                 }
-                _ => unimplemented!("unsupported instruction:{inst:?}"),
+                _ => {
+                    return Err(RuntimeError::internal(format!(
+                        "unsupported instruction: {inst:?}"
+                    )));
+                }
             },
             Opcode::AddC => match (operands[0], operands[1]) {
                 (Operand::Register(Register::Rsp), Operand::Register(Register::Rsp)) => {
                     *self.state.rsp_mut() = self.state.rsp() + operands[2].as_immd() as usize;
                 }
-                _ => unimplemented!("unsupported instruction:{inst:?}"),
+                _ => {
+                    return Err(RuntimeError::internal(format!(
+                        "unsupported instruction: {inst:?}"
+                    )));
+                }
             },
             Opcode::SubC => match (operands[0], operands[1]) {
                 (Operand::Register(Register::Rsp), Operand::Register(Register::Rsp)) => {
                     *self.state.rsp_mut() = self.state.rsp() - operands[2].as_immd() as usize;
                 }
-                _ => unimplemented!("unsupported instruction:{inst:?}"),
+                _ => {
+                    return Err(RuntimeError::internal(format!(
+                        "unsupported instruction: {inst:?}"
+                    )));
+                }
             },
 
             // Arithmetic Operations
@@ -580,7 +600,11 @@ impl VM {
                 }
             }
 
-            inst => unreachable!("unsupported instruction {inst:?}"),
+            opcode => {
+                return Err(RuntimeError::internal(format!(
+                    "unsupported opcode: {opcode:?}"
+                )));
+            }
         }
 
         self.state.jump_offset(1);

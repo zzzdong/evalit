@@ -1,6 +1,6 @@
 use petgraph::{algo::dominators::Dominators, graph::NodeIndex};
 
-use std::collections::{BTreeMap, HashMap, HashSet};
+use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::compiler::ir::instruction::Variable;
 use crate::compiler::ir::{BlockId, ControlFlowGraph, Instruction, Value};
@@ -61,8 +61,8 @@ impl<'a> SSABuilder<'a> {
     }
 
     /// 收集所有变量的定义和使用点
-    fn collect_var_def_and_use(&self) -> HashMap<Variable, VariableInfo> {
-        let mut map = HashMap::new();
+    fn collect_var_def_and_use(&self) -> BTreeMap<Variable, VariableInfo> {
+        let mut map = BTreeMap::new();
 
         for block in self.cfg.blocks() {
             for (idx, inst) in block.instructions().iter().enumerate() {
@@ -88,12 +88,15 @@ impl<'a> SSABuilder<'a> {
     }
 
     /// 计算需要插入Phi节点的位置
+    ///
+    /// 这里的集合一律用有序容器：`HashSet` 的迭代顺序随进程哈希种子变化，会让
+    /// worklist、块参数顺序乃至同一份源码生成的字节码在不同运行间不同。
     fn determine_phi_nodes(
         &self,
-        var_info: &HashMap<Variable, VariableInfo>,
+        var_info: &BTreeMap<Variable, VariableInfo>,
         dominance_frontier: &BTreeMap<BlockId, Vec<BlockId>>,
-    ) -> HashMap<Variable, Vec<BlockId>> {
-        let mut phi_placements: HashMap<Variable, Vec<BlockId>> = HashMap::new();
+    ) -> BTreeMap<Variable, Vec<BlockId>> {
+        let mut phi_placements: BTreeMap<Variable, Vec<BlockId>> = BTreeMap::new();
 
         for (var, info) in var_info {
             if info.defs.len() <= 1 {
@@ -101,11 +104,11 @@ impl<'a> SSABuilder<'a> {
             }
 
             // 获取所有定义点所在的块
-            let def_blocks: HashSet<BlockId> = info.defs.iter().map(|(block, _)| *block).collect();
+            let def_blocks: BTreeSet<BlockId> = info.defs.iter().map(|(block, _)| *block).collect();
 
             // 计算支配边界闭包
-            let mut worklist: Vec<BlockId> = def_blocks.iter().cloned().collect();
-            let mut visited = HashSet::new();
+            let mut worklist: Vec<BlockId> = def_blocks.iter().copied().collect();
+            let mut visited = BTreeSet::new();
 
             while let Some(block) = worklist.pop() {
                 if let Some(df_blocks) = dominance_frontier.get(&block) {
@@ -121,7 +124,7 @@ impl<'a> SSABuilder<'a> {
 
             // **新增：特别处理汇合块**
             // 获取变量的所有使用点
-            let use_blocks: HashSet<BlockId> = info.uses.iter().map(|(block, _)| *block).collect();
+            let use_blocks: BTreeSet<BlockId> = info.uses.iter().map(|(block, _)| *block).collect();
 
             // 检查是否有多个定义流向同一个使用块
             for &use_block in &use_blocks {
@@ -150,11 +153,17 @@ impl<'a> SSABuilder<'a> {
             }
         }
 
+        // 块参数顺序也钉死：phi 放置点按 BlockId 排序，不再受遍历顺序影响。
+        for blocks in phi_placements.values_mut() {
+            blocks.sort_unstable();
+            blocks.dedup();
+        }
+
         phi_placements
     }
 
     /// 为需要Phi节点的块添加块参数
-    fn add_phi_parameters(&mut self, phi_placements: &HashMap<Variable, Vec<BlockId>>) {
+    fn add_phi_parameters(&mut self, phi_placements: &BTreeMap<Variable, Vec<BlockId>>) {
         for (var, blocks) in phi_placements {
             for block_id in blocks {
                 self.cfg.append_block_param(*block_id, *var);
@@ -165,14 +174,14 @@ impl<'a> SSABuilder<'a> {
     /// 处理跳转参数：为跳转到需要Phi参数的块的前驱块添加参数
     fn handle_jump_args(
         &mut self,
-        phi_placements: &HashMap<Variable, Vec<BlockId>>,
+        phi_placements: &BTreeMap<Variable, Vec<BlockId>>,
         block_var_versions: &BlockVarVersions,
     ) {
         // 建立块到其需要的Phi参数的映射
-        let block_phi_vars: HashMap<BlockId, Vec<Variable>> = phi_placements
+        let block_phi_vars: BTreeMap<BlockId, Vec<Variable>> = phi_placements
             .iter()
             .map(|(var, blocks)| blocks.iter().map(move |&block_id| (block_id, *var)))
-            .fold(HashMap::new(), |mut acc, iter| {
+            .fold(BTreeMap::new(), |mut acc, iter| {
                 for (block_id, var) in iter {
                     acc.entry(block_id).or_default().push(var);
                 }
@@ -182,7 +191,11 @@ impl<'a> SSABuilder<'a> {
         // 为每个需要Phi的块处理其前驱块的跳转指令
         for (block_id, phi_vars) in &block_phi_vars {
             let predecessors = self.cfg.get_precedences(*block_id).clone();
-            let sorted_vars = phi_vars.to_vec();
+            // 必须与 add_phi_parameters 追加块参数的顺序一致（按 Variable id 升序），
+            // 否则 args 与 params 会错位。
+            let mut sorted_vars = phi_vars.clone();
+            sorted_vars.sort_unstable();
+            sorted_vars.dedup();
 
             for pred_block_id in predecessors {
                 // 获取前驱块中原始变量的最终版本
@@ -241,7 +254,10 @@ impl<'a> SSABuilder<'a> {
     }
 
     /// 执行SSA重命名算法
-    fn rename_variables(&mut self, var_info: &HashMap<Variable, VariableInfo>) -> BlockVarVersions {
+    fn rename_variables(
+        &mut self,
+        var_info: &BTreeMap<Variable, VariableInfo>,
+    ) -> BlockVarVersions {
         let mut stacks: VersionStack = HashMap::new();
         let mut block_var_versions: BlockVarVersions = HashMap::new();
 
@@ -257,7 +273,7 @@ impl<'a> SSABuilder<'a> {
         &mut self,
         block_id: BlockId,
         stacks: &mut VersionStack,
-        var_info: &HashMap<Variable, VariableInfo>,
+        var_info: &BTreeMap<Variable, VariableInfo>,
         block_var_versions: &mut BlockVarVersions,
     ) {
         // 保存进入此块前的栈快照（用于在处理完所有子节点后恢复）
@@ -374,7 +390,7 @@ impl<'a> SSABuilder<'a> {
         &mut self,
         block_id: BlockId,
         stacks: &mut VersionStack,
-        var_info: &HashMap<Variable, VariableInfo>,
+        var_info: &BTreeMap<Variable, VariableInfo>,
         block_var_versions: &mut BlockVarVersions,
     ) {
         let block_node = self.cfg.graph_node(block_id);

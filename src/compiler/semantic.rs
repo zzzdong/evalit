@@ -34,6 +34,9 @@ pub enum ErrKind {
     UndefinedVariable(String),
     BreakOutsideLoop,
     ContinueOutsideLoop,
+    /// 语法可解析、但 lowering/VM 尚未实现的特性：编译期明确拒绝，不让它
+    /// 走到 `unimplemented!` 变成 panic。
+    Unsupported(&'static str),
 }
 
 impl ErrKind {
@@ -94,7 +97,7 @@ impl<'a> SemanticAnalyzer<'a> {
             Statement::Item(ItemStatement::Function(func)) => self.analyze_function_item(func),
             Statement::Item(ItemStatement::Struct(item)) => self.analyze_struct_item(item),
             Statement::Item(ItemStatement::Enum(EnumItem { .. })) => {
-                unimplemented!("EnumItem not implemented")
+                Err(ErrKind::Unsupported("enum declaration").with_span(span))
             }
         }
     }
@@ -428,8 +431,8 @@ impl<'a> SemanticAnalyzer<'a> {
 
     fn analyze_try_expression(&mut self, expr: &ExpressionNode) -> Result<(), SemanticError> {
         self.analyze_expression(expr)?;
-
-        Ok(())
+        // `?` 在 lowering 里没有实现，原先会落到 `unimplemented!` 直接 panic。
+        Err(ErrKind::Unsupported("try operator (`?`)").with_span(expr.span))
     }
 
     fn analyze_await_expression(&mut self, expr: &ExpressionNode) -> Result<(), SemanticError> {

@@ -1,18 +1,33 @@
+//! 寄存器分配：精确活跃区间分组着色 + 固定栈槽交接。
+//!
+//! 跨块正确性依赖这几条不变量：
+//! 1. 每个变量一个**固定**栈槽，槽位一经分配永不变更；栈槽是跨块的权威值。
+//! 2. 寄存器只是块内的加速副本：块入口清空 `reg_set`，块出口把绑定的值
+//!    全部写回栈槽；块参数（phi）由每条边写槽交接。单趟、按布局顺序的
+//!    codegen 无法知道真正执行的是哪条前驱路径，编译期 `reg_set` 在块入口
+//!    不可信，所以块边界只经内存交接。
+//! 3. `alloc` 返回按序执行的动作列表（先 Spill 被驱逐者，再 Restore 目标），
+//!    调用方必须全部发射；旧实现只取一个动作，被驱逐的值会被静默丢掉。
+//! 4. 同一条 IR 指令内已生成的操作数寄存器被锁定，驱逐时不得覆盖。
+//!
+//! 预留：AOT 阶段应把「寄存器 / 栈槽」抽象成 `Location`，这里分配的 R0..R15
+//! 是虚拟机寄存器，重定位到物理寄存器的入口留在本模块；异常边一旦引入，
+//! handler 入口同样走「清空 reg_set + 从栈槽 Restore」这条路径。
+
 use std::{
-    collections::{HashMap, HashSet},
+    collections::{BTreeMap, BTreeSet},
     fmt,
-    hash::Hash,
 };
 
 use log::trace;
 
-use super::ir::{Block, BlockId, ControlFlowGraph, Instruction};
+use super::ir::{BlockId, ControlFlowGraph};
 use crate::{
     bytecode::{MIN_REQUIRED_REGISTER, Register},
     compiler::ir::{cfg::BlockLayout, instruction::Variable},
 };
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct LiveRange {
     start: usize,
     end: usize,
@@ -29,7 +44,7 @@ pub struct LiveInterval {
 }
 
 impl LiveInterval {
-    pub fn new(var: Variable) -> Self {
+    fn new(var: Variable) -> Self {
         LiveInterval {
             var,
             start: usize::MAX,
@@ -40,73 +55,57 @@ impl LiveInterval {
         }
     }
 
-    #[track_caller]
-    pub fn active(&mut self, index: usize) {
-        println!(
-            "---> active {:?}: {index}, from {}",
-            self.var,
-            std::panic::Location::caller()
-        );
+    /// 用精确活跃索引重建区间。旧实现只在 def/use 打点、靠 `update_end`
+    /// 拉长末端，跨块 live-through 的索引全是空洞；这里逐索引记录后合并。
+    fn rebuild(&mut self, indices: &BTreeSet<usize>) {
+        self.ranges.clear();
+        self.start = usize::MAX;
+        self.end = 0;
 
-        self.start = self.start.min(index);
-        self.end = self.end.max(index);
-
-        if self.ranges.is_empty() {
-            self.ranges.push(LiveRange {
-                start: index,
-                end: index,
-            });
-
-            return;
-        }
-
-        let mut done = false;
-        for range in self.ranges.iter_mut() {
-            if range.end == index - 1 {
-                range.end = range.end.max(index);
-                done = true;
-                break;
+        for &index in indices {
+            match self.ranges.last_mut() {
+                Some(last) if last.end + 1 == index => last.end = index,
+                _ => self.ranges.push(LiveRange {
+                    start: index,
+                    end: index,
+                }),
             }
         }
 
-        if done {
-            return;
+        if let Some(first) = self.ranges.first() {
+            self.start = first.start;
         }
-
-        self.ranges.push(LiveRange {
-            start: index,
-            end: index,
-        });
-    }
-
-    pub fn update_end(&mut self, index: usize) {
-        self.end = self.end.max(index);
-        // 更新最后一个范围的结束位置
-        if let Some(last) = self.ranges.last_mut()
-            && index > last.end
-        {
-            last.end = index;
+        if let Some(last) = self.ranges.last() {
+            self.end = last.end;
         }
     }
 
-    pub fn merge(&mut self, other: &LiveInterval) {
-        self.start = self.start.min(other.start);
-        self.end = self.end.max(other.end);
-
-        self.ranges.extend(other.ranges.clone());
+    /// 精确重叠判定：任一活跃区间相交即冲突，不再只比整体 [start, end]。
+    fn overlaps(&self, other: &LiveInterval) -> bool {
+        self.ranges.iter().any(|a| {
+            other
+                .ranges
+                .iter()
+                .any(|b| a.start <= b.end && b.start <= a.end)
+        })
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub(crate) struct Liveness {
-    intervals: HashMap<Variable, LiveInterval>,
+    intervals: BTreeMap<Variable, LiveInterval>,
+    next_stack: usize,
 }
 
 impl Liveness {
-    fn new() -> Self {
-        Liveness {
-            intervals: HashMap::new(),
-        }
+    fn interval_mut(&mut self, var: Variable) -> &mut LiveInterval {
+        self.intervals
+            .entry(var)
+            .or_insert_with(|| LiveInterval::new(var))
+    }
+
+    fn vars(&self) -> Vec<Variable> {
+        self.intervals.keys().copied().collect()
     }
 
     fn intervals(&self) -> Vec<LiveInterval> {
@@ -114,265 +113,149 @@ impl Liveness {
     }
 
     fn set_register(&mut self, var: Variable, reg: Register) {
-        self.intervals.get_mut(&var).unwrap().reg.replace(reg);
+        self.interval_mut(var).reg = Some(reg);
     }
 
-    fn set_stack(&mut self, var: Variable, stack: usize) {
-        self.intervals.get_mut(&var).unwrap().stack.replace(stack);
+    fn stack(&self, var: Variable) -> Option<usize> {
+        self.intervals.get(&var).and_then(|interval| interval.stack)
+    }
+
+    /// 槽位一经分配永不变更：同一条指令流里读写必须落在同一个槽上。
+    fn ensure_stack(&mut self, var: Variable) -> usize {
+        if let Some(slot) = self.stack(var) {
+            return slot;
+        }
+        let slot = self.next_stack;
+        self.next_stack += 1;
+        self.interval_mut(var).stack = Some(slot);
+        slot
     }
 
     fn stack_size(&self) -> usize {
-        let stacks = self
-            .intervals
-            .values()
-            .filter(|interval| interval.stack.is_some());
-
-        if stacks.clone().count() == 0 {
-            return 0;
-        }
-
-        stacks
-            .map(|interval| interval.stack.unwrap())
-            .max()
-            .unwrap_or(0)
-            + 1
+        self.next_stack
     }
 }
 
-pub struct LiveIntervalAnalyzer {}
+/// 块索引区间 + 每个块的 live_out 集合。
+type LivenessSets = (
+    BTreeMap<BlockId, (usize, usize)>,
+    BTreeMap<BlockId, BTreeSet<Variable>>,
+);
+
+pub struct LiveIntervalAnalyzer;
 
 impl LiveIntervalAnalyzer {
-    pub fn scan(cfg: &ControlFlowGraph, block_layout: &BlockLayout) -> Liveness {
-        // 1. 遍历一次控制流图，生成基本存活区间
-        let mut liveness = Self::build_basic_intervals(cfg, block_layout);
-
-        // 第二遍：计算live_in和live_out集合
-        let (_live_in_sets, live_out_sets) = Self::compute_liveness_sets(cfg, block_layout);
-
-        // 第三遍：更新变量存活周期
-        Self::update_intervals(cfg, block_layout, &live_out_sets, &mut liveness);
-
-        liveness
+    pub fn scan(cfg: &ControlFlowGraph, layout: &BlockLayout) -> Liveness {
+        let (block_ranges, live_out) = Self::compute_liveness_sets(cfg, layout);
+        Self::build_intervals(cfg, layout, &block_ranges, &live_out)
     }
 
-    /// 第一遍：扫描所有指令，建立基本的LiveInterval
-    fn build_basic_intervals(cfg: &ControlFlowGraph, block_layout: &BlockLayout) -> Liveness {
-        let mut liveness = Liveness::new();
+    /// 标准块级数据流：`live_out[b] = ∪ live_in[succ]`，
+    /// `live_in[b] = (live_out[b] - defs) ∪ uses`。块参数在入口定义，不穿透。
+    ///
+    /// 旧实现把反向扫描后的集合同时写进 `live_in` 和 `live_out`，导致
+    /// 「live_out」里存的其实是 live_in；这里分开保存。
+    fn compute_liveness_sets(cfg: &ControlFlowGraph, layout: &BlockLayout) -> LivenessSets {
+        let mut block_ranges = BTreeMap::new();
         let mut index = 0;
+        for block in layout.iter(cfg) {
+            let start = index;
+            index += block.instructions().len();
+            block_ranges.insert(block.id(), (start, index));
+        }
 
-        for block in block_layout.iter(cfg) {
-            let block_start = index;
-            // 处理块参数（Phi参数）：它们在块开始时就是活跃的
-            for param in block.params() {
-                liveness
-                    .intervals
-                    .entry(*param)
-                    .or_insert(LiveInterval::new(*param))
-                    .active(block_start);
-            }
+        let mut live_in: BTreeMap<BlockId, BTreeSet<Variable>> = BTreeMap::new();
+        let mut live_out: BTreeMap<BlockId, BTreeSet<Variable>> = BTreeMap::new();
+        for block in layout.iter(cfg) {
+            live_in.insert(block.id(), BTreeSet::new());
+            live_out.insert(block.id(), BTreeSet::new());
+        }
 
-            for inst in block.instructions().iter() {
-                match inst {
-                    Instruction::Jump { dst, args } => {
-                        let params = cfg
-                            .get_block(dst.to_block())
-                            .expect("no such block")
-                            .params();
-                        for (_arg, param) in args.iter().zip(params.iter()) {
-                            liveness
-                                .intervals
-                                .entry(*param)
-                                .or_insert(LiveInterval::new(*param))
-                                .active(index);
-                        }
+        loop {
+            let mut changed = false;
+            for block in layout.iter_rev(cfg) {
+                let mut out = BTreeSet::new();
+                for &succ in cfg.get_successors(block.id()) {
+                    if let Some(set) = live_in.get(&succ) {
+                        out.extend(set.iter().copied());
                     }
-                    Instruction::BrIf {
-                        condition: _,
-                        true_blk,
-                        false_blk,
-                        true_args,
-                        false_args,
-                    } => {
-                        let true_params = cfg
-                            .get_block(true_blk.to_block())
-                            .expect("no such block")
-                            .params();
-                        for (_arg, param) in true_args.iter().zip(true_params.iter()) {
-                            liveness
-                                .intervals
-                                .entry(*param)
-                                .or_insert(LiveInterval::new(*param))
-                                .active(index);
-                        }
-
-                        let false_params = cfg
-                            .get_block(false_blk.to_block())
-                            .expect("no such block")
-                            .params();
-                        for (_arg, param) in false_args.iter().zip(false_params.iter()) {
-                            liveness
-                                .intervals
-                                .entry(*param)
-                                .or_insert(LiveInterval::new(*param))
-                                .active(index);
-                        }
-                    }
-                    _ => {}
                 }
-
-                Self::process_instruction(&mut liveness, index, inst);
-
-                index += 1;
-            }
-
-            // let block_end = index - 1;
-            // Self::leave_block(&mut liveness, block_start, block_end);
-        }
-
-        liveness
-    }
-
-    /// 处理指令中的变量，更新LiveInterval
-    fn process_instruction(liveness: &mut Liveness, index: usize, inst: &Instruction) {
-        let (defined, used) = inst.defined_and_used_vars();
-
-        // 处理使用的变量（在定义之前处理使用）
-        for var in used {
-            liveness
-                .intervals
-                .entry(var)
-                .or_insert(LiveInterval::new(var))
-                .active(index);
-        }
-
-        // 处理定义的变量
-        for var in defined {
-            liveness
-                .intervals
-                .entry(var)
-                .or_insert(LiveInterval::new(var))
-                .active(index);
-        }
-    }
-
-    /// 第二遍：计算每个块的live_in和live_out集合
-    fn compute_liveness_sets(
-        cfg: &ControlFlowGraph,
-        block_layout: &BlockLayout,
-    ) -> (
-        HashMap<BlockId, HashSet<Variable>>,
-        HashMap<BlockId, HashSet<Variable>>,
-    ) {
-        let mut live_in_sets = HashMap::new();
-        let mut live_out_sets = HashMap::new();
-        let mut changed = true;
-
-        // 初始化每个块的live_in和live_out为空集合
-        for block in block_layout.iter(cfg) {
-            live_in_sets.insert(block.id(), HashSet::new());
-            live_out_sets.insert(block.id(), HashSet::new());
-        }
-
-        while changed {
-            changed = false;
-
-            // 从后向前遍历基本块
-            for block in block_layout.iter_rev(cfg) {
-                // 计算当前块的live_out（从后继块的live_in获取）
-                let mut new_live_out = Self::compute_block_liveness(cfg, block, &live_in_sets);
-
-                // 块参数在块入口处被定义，应该从活跃变量集合中移除
-                // （它们的值来自前驱块的跳转实参，那些实参变量才是活跃的）
                 for param in block.params() {
-                    new_live_out.remove(param);
+                    out.remove(param);
                 }
 
-                // 从后向前扫描指令
+                let mut cur = out.clone();
                 for inst in block.instructions().iter().rev() {
                     let (defined, used) = inst.defined_and_used_vars();
-
-                    // 先从live_out中移除定义的变量
                     for var in defined {
-                        new_live_out.remove(&var);
+                        cur.remove(&var);
                     }
-
-                    // 添加使用的变量到live_out（这些变量在此指令之前必须是活跃的）
                     for var in used {
-                        new_live_out.insert(var);
+                        cur.insert(var);
                     }
                 }
+                for param in block.params() {
+                    cur.remove(param);
+                }
 
-                // live_in就是扫描完所有指令后的live_out
-                let new_live_in: HashSet<Variable> = new_live_out.clone();
-
-                // 检查是否有变化
-                let old_live_in = live_in_sets.get(&block.id()).unwrap();
-                let old_live_out = live_out_sets.get(&block.id()).unwrap();
-
-                if &new_live_in != old_live_in || &new_live_out != old_live_out {
+                if live_in.get(&block.id()) != Some(&cur) {
+                    live_in.insert(block.id(), cur);
                     changed = true;
-                    live_in_sets.insert(block.id(), new_live_in);
-                    live_out_sets.insert(block.id(), new_live_out);
+                }
+                if live_out.get(&block.id()) != Some(&out) {
+                    live_out.insert(block.id(), out);
+                    changed = true;
                 }
             }
-        }
-
-        (live_in_sets, live_out_sets)
-    }
-
-    /// 计算单个基本块的live_out（从后继块的live_in获取）
-    fn compute_block_liveness(
-        cfg: &ControlFlowGraph,
-        block: &Block,
-        live_in_sets: &HashMap<BlockId, HashSet<Variable>>,
-    ) -> HashSet<Variable> {
-        let mut live_out = HashSet::new();
-
-        // 获取所有后继块
-        let successors = cfg.get_successors(block.id());
-
-        // 遍历所有后继块
-        for &succ_block_id in successors {
-            // 将后继块的live_in中的所有变量添加到当前块的live_out中
-            if let Some(succ_live_in) = live_in_sets.get(&succ_block_id) {
-                live_out.extend(succ_live_in.iter().cloned());
+            if !changed {
+                break;
             }
         }
 
-        live_out
+        (block_ranges, live_out)
     }
 
-    /// 第三遍：更新变量的存活周期
-    fn update_intervals(
+    /// 逐块后向存活扫描：以 `live_out` 为种子，把变量在**真正活跃的每条
+    /// 指令索引**上都记录下来，再合并成连续区间。
+    fn build_intervals(
         cfg: &ControlFlowGraph,
-        block_layout: &BlockLayout,
-        live_out_sets: &HashMap<BlockId, HashSet<Variable>>,
-        liveness: &mut Liveness,
-    ) {
-        // 计算每个块的起始和结束索引
-        let mut block_starts = Vec::new();
-        let mut current_index = 0;
+        layout: &BlockLayout,
+        block_ranges: &BTreeMap<BlockId, (usize, usize)>,
+        live_out: &BTreeMap<BlockId, BTreeSet<Variable>>,
+    ) -> Liveness {
+        let mut active: BTreeMap<Variable, BTreeSet<usize>> = BTreeMap::new();
 
-        for block in block_layout.iter(cfg) {
-            block_starts.push(current_index);
-            current_index += block.instructions().len();
-        }
+        for block in layout.iter(cfg) {
+            let (start, _) = block_ranges[&block.id()];
+            let mut live = live_out.get(&block.id()).cloned().unwrap_or_default();
 
-        // 遍历所有块，更新变量的存活周期
-        for (block_id, block) in block_layout.iter(cfg).enumerate() {
-            let block_start = block_starts[block_id];
-            let block_end = block_start + block.instructions().len();
-
-            // 获取当前块的live_out集合
-            if let Some(live_out) = live_out_sets.get(&block.id()) {
-                // 更新live_out中变量的存活周期
-                for &var in live_out {
-                    if let Some(interval) = liveness.intervals.get_mut(&var) {
-                        interval.update_end(block_end);
-                    }
+            for (i, inst) in block.instructions().iter().enumerate().rev() {
+                let (defined, used) = inst.defined_and_used_vars();
+                for var in defined {
+                    live.remove(&var);
+                }
+                for var in used {
+                    live.insert(var);
+                }
+                for var in &live {
+                    active.entry(*var).or_default().insert(start + i);
                 }
             }
+
+            // 块参数与入口活跃值在块首即活跃（空块也要有区间）。
+            for param in block.params() {
+                active.entry(*param).or_default().insert(start);
+            }
+            for var in live {
+                active.entry(var).or_default().insert(start);
+            }
         }
+
+        let mut liveness = Liveness::default();
+        for (var, indices) in active {
+            liveness.interval_mut(var).rebuild(&indices);
+        }
+        liveness
     }
 }
 
@@ -388,7 +271,7 @@ impl RegAlloc {
             panic!("Not enough registers");
         }
         Self {
-            liveness: Liveness::new(),
+            liveness: Liveness::default(),
             reg_set: RegisterSet::new(registers),
         }
     }
@@ -406,81 +289,119 @@ impl RegAlloc {
             .collect()
     }
 
-    /// 获取变量被分配的寄存器
-    pub fn get_register(&self, value: &Variable) -> Option<Register> {
-        for reg_entry in &self.reg_set.registers {
-            if reg_entry.variable.as_ref() == Some(value) {
-                return Some(reg_entry.register);
-            }
-        }
-        None
-    }
-
     pub fn stack_size(&self) -> usize {
         self.liveness.stack_size()
     }
 
-    /// 获取变量被分配的栈偏移量，如果变量不在栈上则返回None
-    pub fn get_stack_offset(&self, value: &Variable) -> Option<usize> {
-        self.liveness
-            .intervals
-            .get(value)
-            .and_then(|interval| interval.stack)
+    /// 变量的固定栈槽；缺失时按需分配，绝不 unwrap。
+    pub fn stack_slot(&mut self, var: Variable) -> usize {
+        self.liveness.ensure_stack(var)
     }
 
-    pub fn alloc(&mut self, value: Variable, index: usize) -> (Register, Option<Action>) {
-        let interval = self.liveness.intervals.get(&value).unwrap();
+    /// 块入口：编译期寄存器状态跨块不可信，全部解绑。
+    pub fn begin_block(&mut self) {
+        self.reg_set.clear();
+    }
 
-        match self.reg_set.find(value) {
-            Some(register) => (register, None),
-            None => match interval.reg {
-                Some(register) => {
-                    self.reg_set.use_register(register, value, true);
-                    (register, None)
+    /// 块参数（phi）已经由某条边写入栈槽，寄存器里的旧副本作废。
+    pub fn invalidate(&mut self, var: Variable) {
+        self.reg_set.release(var);
+    }
+
+    /// 块出口：把当前绑定在寄存器中的变量全部写回各自的固定栈槽。
+    /// 这同时保证终止符里的跳转实参读到的是最新值。
+    pub fn spill_all_bound(&mut self) -> Vec<Action> {
+        let holds = self.reg_set.registers.clone();
+        let mut actions = Vec::new();
+        for hold in holds {
+            if let Some(var) = hold.variable {
+                let stack = self.stack_slot(var);
+                actions.push(Action::Spill {
+                    register: hold.register,
+                    stack,
+                });
+            }
+        }
+        actions
+    }
+
+    /// 分配寄存器，返回**按序**执行的动作：先 Spill 被驱逐者，再 Restore 目标。
+    /// `locked` 是本条 IR 指令已经生成的操作数寄存器，驱逐时必须跳过。
+    pub fn alloc(&mut self, var: Variable, locked: &[Register]) -> (Register, Vec<Action>) {
+        if let Some(register) = self.reg_set.find(var) {
+            return (register, Vec::new());
+        }
+
+        let stack = self.stack_slot(var);
+        // 静态分配的固定寄存器若正被本条指令的某个操作数占着，不能抢占：
+        // 否则第二个 gen_operand 会把第一个操作数的值覆盖掉。此时退化为
+        // 动态分配（free/evictable 都会跳过 locked）。
+        let fixed = self
+            .liveness
+            .intervals
+            .get(&var)
+            .and_then(|i| i.reg)
+            .filter(|reg| {
+                !locked.contains(reg)
+                    || self.reg_set.holder(*reg).is_none()
+                    || self.reg_set.holder(*reg) == Some(var)
+            });
+        let mut actions = Vec::new();
+
+        let register = match fixed {
+            Some(reg) => {
+                if let Some(holder) = self.reg_set.holder(reg)
+                    && holder != var
+                {
+                    let holder_stack = self.stack_slot(holder);
+                    actions.push(Action::Spill {
+                        register: reg,
+                        stack: holder_stack,
+                    });
+                    self.reg_set.release(holder);
                 }
+                reg
+            }
+            None => match self.reg_set.free(locked) {
+                Some(reg) => reg,
                 None => {
-                    let reg = self.reg_set.must_alloc(value);
-
-                    // 如果变量在栈上，并且在当前索引处开始一个新的活跃范围，需要从栈恢复
-                    if interval.stack.is_some()
-                        && interval.ranges.iter().any(|range| range.start == index)
-                    {
-                        let spill = Action::Restore {
-                            stack: interval.stack.unwrap(),
-                            register: reg,
-                        };
-
-                        return (reg, Some(spill));
+                    // 找不到空闲寄存器就驱逐一个非锁定、优先非固定的占用者。
+                    // 一条 IR 指令最多锁定 3 个操作数，16 个通用寄存器下
+                    // evictable 不会为空；这里仍给一个确定性兜底，绝不 panic。
+                    match self.reg_set.evictable(locked) {
+                        Some(victim) => {
+                            if let Some(holder) = victim.variable {
+                                let holder_stack = self.stack_slot(holder);
+                                actions.push(Action::Spill {
+                                    register: victim.register,
+                                    stack: holder_stack,
+                                });
+                                self.reg_set.release(holder);
+                            }
+                            victim.register
+                        }
+                        None => self.reg_set.registers[0].register,
                     }
-
-                    (reg, None)
                 }
             },
-        }
-    }
+        };
 
-    pub fn release(&mut self, value: Variable, index: usize) -> Option<Action> {
-        trace!("releasing {value}");
-
-        let interval = self.liveness.intervals.get(&value).unwrap();
-        // 只有当变量在索引处完全结束其活跃周期时才释放
-        if interval.end == index
-            && let Some(stack) = interval.stack
-            && let Some(register) = self.reg_set.release(value)
-        {
-            let spill = Action::Spill { register, stack };
-            return Some(spill);
-        }
-
-        None
+        self.reg_set.bind(register, var, fixed.is_some());
+        // 栈槽是权威值：绑定建立后总是从槽恢复，块入口 / phi 交接 / 驱逐
+        // 后都能拿到正确值（多出的 Mov 由 golden 快照记录，可后续优化）。
+        actions.push(Action::Restore { stack, register });
+        (register, actions)
     }
 
     pub fn arrange(&mut self, cfg: &ControlFlowGraph, block_layout: &BlockLayout) {
         self.liveness = LiveIntervalAnalyzer::scan(cfg, block_layout);
 
-        // println!("blocks: {:?}", block_layout.blocks());
-        // println!("liveness: {:#?}", self.liveness);
+        // 1. 每个变量一个固定栈槽，按 Variable id 升序，确定性。
+        for var in self.liveness.vars() {
+            self.liveness.ensure_stack(var);
+        }
 
+        // 2. 精确区间分组着色。
         let registers: Vec<Register> = self
             .reg_set
             .registers
@@ -489,105 +410,43 @@ impl RegAlloc {
             .collect();
 
         let mut intervals = self.liveness.intervals();
+        intervals.retain(|interval| !interval.ranges.is_empty());
+        intervals.sort_by_key(|interval| (interval.start, interval.var.id()));
 
-        // 按开始时间排序，优先处理长区间
-        intervals.sort_by(|a, b| {
-            let a_len = a.end - a.start;
-            let b_len = b.end - b.start;
-            a.start.cmp(&b.start).then(b_len.cmp(&a_len))
-        });
-
-        // 1. 分组
         let mut groups: Vec<Vec<LiveInterval>> = Vec::new();
         for interval in intervals {
-            let mut placed = false;
-            for group in groups.iter_mut() {
-                if Self::can_join_group(&interval, group) {
-                    group.push(interval.clone());
-                    placed = true;
-                    break;
-                }
-            }
-            if !placed {
-                groups.push(vec![interval.clone()]);
+            match groups
+                .iter_mut()
+                .find(|group| group.iter().all(|existing| !interval.overlaps(existing)))
+            {
+                Some(group) => group.push(interval),
+                None => groups.push(vec![interval]),
             }
         }
 
-        // 2. 分配寄存器
-        // 2.1 如果组数量不多于可用寄存器数量，则直接分配
-        if groups.len() <= registers.len() {
-            for (group, reg) in groups.into_iter().zip(registers.iter()) {
-                for interval in group {
-                    self.liveness.set_register(interval.var, *reg);
-                }
-            }
-            return;
-        }
-
-        // 2.2 保留3个临时寄存器，其他的进行优先级分配
-        let (_temp_regs, fixed_regs) = registers.split_at(3);
-
-        // 排序
-        groups.sort_by(|a, b| {
-            // let a_len: usize = a.iter().map(|interval| interval.end - interval.start).sum();
-            // let b_len: usize = b.iter().map(|interval| interval.end - interval.start).sum();
-            // b_len.cmp(&a_len)
-
-            let a_len: usize = a.iter().map(|interval| interval.ranges.len()).sum();
-            let b_len: usize = b.iter().map(|interval| interval.ranges.len()).sum();
-            b_len.cmp(&a_len)
-        });
+        // 寄存器够用时全部分配；不够时保留前 MIN_REQUIRED_REGISTER 个作临时
+        // 寄存器池，其余按活跃区间密度优先分配，剩下的组只走栈槽。
+        let fixed_regs: &[Register] = if groups.len() <= registers.len() {
+            &registers
+        } else {
+            groups.sort_by(|a, b| {
+                let a_ranges: usize = a.iter().map(|interval| interval.ranges.len()).sum();
+                let b_ranges: usize = b.iter().map(|interval| interval.ranges.len()).sum();
+                (b_ranges, a[0].var.id()).cmp(&(a_ranges, b[0].var.id()))
+            });
+            &registers[MIN_REQUIRED_REGISTER..]
+        };
 
         for (i, group) in groups.iter().enumerate() {
             trace!("Group[{i}]: {group:?}");
-            // let vars = group.iter().map(|interval| interval.var).collect::<Vec<_>>();
-            // trace!("Group[{i}]: {vars:?}");
-        }
-
-        // 2.2.1 分配固定寄存器
-        let (fixed_group, temp_group) = groups.split_at(fixed_regs.len());
-        for (group, reg) in fixed_group.iter().zip(fixed_regs) {
-            for interval in group {
-                self.liveness.set_register(interval.var, *reg);
-            }
-        }
-
-        // 2.2.2 分配临时寄存器，只分配栈上空间，不分配寄存器
-        for (i, group) in temp_group.iter().enumerate() {
-            for interval in group {
-                self.liveness.set_stack(interval.var, i);
-            }
-        }
-
-        // 验证所有块参数都有分配（寄存器或栈）
-        for block in block_layout.iter(cfg) {
-            for param in block.params() {
-                let interval = self.liveness.intervals.get(param);
-                match interval {
-                    Some(interval) => {
-                        if interval.reg.is_none() && interval.stack.is_none() {
-                            trace!(
-                                "Warning: phi parameter {:?} has no register or stack allocation",
-                                param
-                            );
-                        }
-                    }
-                    None => {
-                        trace!("Warning: phi parameter {:?} has no live interval", param);
-                    }
+            if let Some(&reg) = fixed_regs.get(i) {
+                for interval in group {
+                    self.liveness.set_register(interval.var, reg);
                 }
             }
         }
-    }
 
-    fn can_join_group(interval: &LiveInterval, group: &[LiveInterval]) -> bool {
-        group
-            .iter()
-            .all(|existing| !Self::has_overlap(interval, existing))
-    }
-
-    fn has_overlap(interval_a: &LiveInterval, interval_b: &LiveInterval) -> bool {
-        interval_a.start <= interval_b.end && interval_b.start <= interval_a.end
+        self.reg_set.clear();
     }
 }
 
@@ -605,45 +464,66 @@ impl RegisterSet {
         Self { registers }
     }
 
-    fn must_alloc(&mut self, value: Variable) -> Register {
-        let reg = self
-            .registers
-            .iter_mut()
-            .find(|reg| reg.variable.is_none())
-            .unwrap();
-        reg.variable = Some(value);
-        reg.register
-    }
-
-    fn release(&mut self, value: Variable) -> Option<Register> {
-        match self
-            .registers
-            .iter_mut()
-            .find(|reg| reg.variable == Some(value))
-        {
-            Some(reg) => {
-                reg.variable = None;
-                Some(reg.register)
-            }
-            None => None,
-        }
-    }
-
-    fn use_register(&mut self, register: Register, variable: Variable, is_fixed: bool) {
-        for reg in self.registers.iter_mut() {
-            if reg.register == register {
-                reg.variable = Some(variable);
-                reg.is_fixed = is_fixed;
-                return;
-            }
+    fn clear(&mut self) {
+        for hold in &mut self.registers {
+            hold.variable = None;
+            hold.is_fixed = false;
         }
     }
 
     fn find(&self, variable: Variable) -> Option<Register> {
         self.registers
             .iter()
-            .find(|reg| reg.variable == Some(variable))
-            .map(|reg| reg.register)
+            .find(|hold| hold.variable == Some(variable))
+            .map(|hold| hold.register)
+    }
+
+    fn holder(&self, register: Register) -> Option<Variable> {
+        self.registers
+            .iter()
+            .find(|hold| hold.register == register)
+            .and_then(|hold| hold.variable)
+    }
+
+    fn bind(&mut self, register: Register, variable: Variable, is_fixed: bool) {
+        for hold in &mut self.registers {
+            if hold.register == register {
+                hold.variable = Some(variable);
+                hold.is_fixed = is_fixed;
+                return;
+            }
+        }
+    }
+
+    fn release(&mut self, variable: Variable) -> Option<Register> {
+        match self
+            .registers
+            .iter_mut()
+            .find(|hold| hold.variable == Some(variable))
+        {
+            Some(hold) => {
+                hold.variable = None;
+                hold.is_fixed = false;
+                Some(hold.register)
+            }
+            None => None,
+        }
+    }
+
+    fn free(&self, locked: &[Register]) -> Option<Register> {
+        self.registers
+            .iter()
+            .find(|hold| hold.variable.is_none() && !locked.contains(&hold.register))
+            .map(|hold| hold.register)
+    }
+
+    /// 优先驱逐临时（非固定）寄存器，顺序按寄存器编号，保证确定性。
+    fn evictable(&self, locked: &[Register]) -> Option<RegisterHold> {
+        self.registers
+            .iter()
+            .filter(|hold| hold.variable.is_some() && !locked.contains(&hold.register))
+            .min_by_key(|hold| (hold.is_fixed, hold.register.as_usize()))
+            .copied()
     }
 }
 
@@ -677,8 +557,70 @@ impl RegisterHold {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, Copy)]
 pub enum Action {
     Restore { stack: usize, register: Register },
     Spill { register: Register, stack: usize },
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn rebuilt_intervals_have_no_holes() {
+        let mut interval = LiveInterval::new(Variable::new(0));
+        interval.rebuild(&[0, 1, 2, 5, 6].into_iter().collect());
+        assert_eq!(interval.ranges.len(), 2);
+        assert_eq!((interval.start, interval.end), (0, 6));
+        assert_eq!((interval.ranges[0].start, interval.ranges[0].end), (0, 2));
+        assert_eq!((interval.ranges[1].start, interval.ranges[1].end), (5, 6));
+
+        // 空洞 [3,4] 不与任何精确区间相交；旧的整体 [0,6] 判定会误报冲突。
+        let mut hole = LiveInterval::new(Variable::new(1));
+        hole.rebuild(&[3, 4].into_iter().collect());
+        assert!(!interval.overlaps(&hole));
+
+        let mut crossing = LiveInterval::new(Variable::new(2));
+        crossing.rebuild(&[2, 3, 4].into_iter().collect());
+        assert!(interval.overlaps(&crossing));
+    }
+
+    #[test]
+    fn alloc_emits_spill_before_restore() {
+        let mut ra = RegAlloc::new(&Register::general()[..4]);
+        let v0 = Variable::new(0);
+        let v1 = Variable::new(1);
+        ra.stack_slot(v0);
+        ra.stack_slot(v1);
+        ra.liveness.set_register(v0, Register::R0);
+        ra.liveness.set_register(v1, Register::R0);
+
+        let (reg0, first) = ra.alloc(v0, &[]);
+        assert_eq!(reg0, Register::R0);
+        assert!(matches!(first[..], [Action::Restore { .. }]));
+
+        let (reg1, second) = ra.alloc(v1, &[]);
+        assert_eq!(reg1, Register::R0);
+        assert_eq!(second.len(), 2);
+        assert!(matches!(second[0], Action::Spill { .. }));
+        assert!(matches!(second[1], Action::Restore { .. }));
+    }
+
+    #[test]
+    fn fixed_register_does_not_steal_a_locked_operand() {
+        let mut ra = RegAlloc::new(&Register::general()[..4]);
+        let v0 = Variable::new(0);
+        let v1 = Variable::new(1);
+        ra.stack_slot(v0);
+        ra.stack_slot(v1);
+        ra.liveness.set_register(v0, Register::R0);
+        ra.liveness.set_register(v1, Register::R0);
+
+        let (reg0, _) = ra.alloc(v0, &[]);
+        let (reg1, _) = ra.alloc(v1, &[reg0]);
+        assert_eq!(reg0, Register::R0);
+        assert_ne!(reg1, reg0);
+        assert_eq!(ra.reg_set.find(v0), Some(Register::R0));
+    }
 }

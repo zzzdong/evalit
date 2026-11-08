@@ -189,7 +189,7 @@ impl Compiler {
 
         // println!("before SSA:\n{}", unit.control_flow_graph);
 
-        // TODO: 暂时禁用SSA转换，待修复后再启用
+        // AST -> SSA：主 CFG 与下面的每个函数 CFG 都要转换（phi 用块参数表达）。
         let mut ssa_builder = ir::SSABuilder::new(&mut unit.control_flow_graph);
         ssa_builder.convert_to_ssa();
 
@@ -212,16 +212,19 @@ impl Compiler {
             ssa_builder.convert_to_ssa();
 
             let mut codegen = Codegen::new(&Register::general());
-            let insts = codegen.generate_code(func.control_flow_graph);
-            symtab.insert(func.id, offset);
-            offset += insts.len();
-            instructions.extend(insts.to_vec());
+            // generate_code 返回的是借用 codegen 的切片，先转成 owned 再读 debug_insts。
+            let insts = codegen.generate_code(func.control_flow_graph).to_vec();
+            // 调试指令的函数内偏移必须先按本函数的起始 pc 重定位，再推进 offset。
+            let func_offset = offset;
+            symtab.insert(func.id, func_offset);
             debug_instructions.extend(
                 codegen
                     .debug_insts()
                     .iter()
-                    .map(|(id, inst)| (*id + offset, inst.clone())),
+                    .map(|(id, inst)| (*id + func_offset, inst.clone())),
             );
+            offset += insts.len();
+            instructions.extend(insts);
         }
 
         let module = Module {

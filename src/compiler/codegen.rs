@@ -2,7 +2,7 @@ use std::collections::{BTreeMap, HashMap};
 
 use log::{debug, trace};
 
-use super::ir::{ControlFlowGraph, Instruction, Value};
+use super::ir::{ControlFlowGraph, Instruction, Value, instruction::Variable};
 use crate::bytecode::{Bytecode, Opcode, Operand, Register};
 
 use super::regalloc::{Action, RegAlloc};
@@ -15,6 +15,8 @@ pub struct Codegen {
     block_map: HashMap<isize, isize>,
     inst_index: usize,
     insts: BTreeMap<usize, Instruction>,
+    /// 本条 IR 指令已经生成的操作数寄存器，分配器驱逐时必须跳过。
+    locked: Vec<Register>,
 }
 
 impl Codegen {
@@ -25,6 +27,7 @@ impl Codegen {
             block_map: HashMap::new(),
             inst_index: 0,
             insts: BTreeMap::new(),
+            locked: Vec::new(),
         }
     }
 
@@ -54,7 +57,19 @@ impl Codegen {
             self.block_map
                 .insert(block.id().as_usize() as isize, self.codes.len() as isize);
 
-            for inst in block.instructions() {
+            // 块入口只经内存交接：编译期 reg_set 在块入口不可信。
+            self.reg_alloc.begin_block();
+
+            let block_len = block.instructions().len();
+            for (inst_pos, inst) in block.instructions().iter().enumerate() {
+                self.begin_inst();
+                // 块出口把绑定值全部写回固定栈槽，终止符里的跳转实参
+                // 以及下一块的 Restore 才能拿到最新值。
+                if inst_pos + 1 == block_len {
+                    let actions = self.reg_alloc.spill_all_bound();
+                    self.emit_actions(&actions);
+                }
+
                 debug!("inst[{}]: {inst:?}", self.inst_index);
                 debug!("register: {}", self.reg_alloc.reg_set);
 
@@ -293,41 +308,11 @@ impl Codegen {
                         self.codes.push(Bytecode::empty(Opcode::Ret));
                     }
                     Instruction::Jump { dst, args } => {
-                        // 为每个跳转参数生成mov指令
-                        for (param, arg) in cfg
+                        let params = cfg
                             .get_block(dst.to_block())
-                            .map(|b| b.params())
-                            .unwrap_or_default()
-                            .iter()
-                            .zip(args.iter())
-                        {
-                            let arg_op = self.gen_operand(*arg);
-                            // 检查形参是否已分配寄存器
-                            if let Some(param_reg) = self.reg_alloc.get_register(param) {
-                                self.codes.push(Bytecode::double(
-                                    Opcode::Mov,
-                                    param_reg.into(),
-                                    arg_op,
-                                ));
-                            } else if let Some(stack_offset) =
-                                self.reg_alloc.get_stack_offset(param)
-                            {
-                                // 形参在栈上，存储到栈位置
-                                self.codes.push(Bytecode::double(
-                                    Opcode::Mov,
-                                    Operand::Stack(stack_offset as isize),
-                                    arg_op,
-                                ));
-                            } else {
-                                // 既不在寄存器也不在栈上，分配一个新寄存器（后备方案）
-                                let param_reg = self.reg_alloc.alloc(*param, self.inst_index).0;
-                                self.codes.push(Bytecode::double(
-                                    Opcode::Mov,
-                                    param_reg.into(),
-                                    arg_op,
-                                ));
-                            }
-                        }
+                            .map(|b| b.params().to_vec())
+                            .unwrap_or_default();
+                        self.store_jump_args(&params, &args);
 
                         let dst = self.gen_operand(dst);
 
@@ -347,69 +332,17 @@ impl Codegen {
                         true_args,
                         false_args,
                     } => {
-                        // 为true分支参数生成mov指令
-                        let true_block_id = true_blk.to_block();
                         let true_params = cfg
-                            .get_block(true_block_id)
-                            .map(|b| b.params())
+                            .get_block(true_blk.to_block())
+                            .map(|b| b.params().to_vec())
                             .unwrap_or_default();
-                        for (param, arg) in true_params.iter().zip(true_args.iter()) {
-                            let arg_op = self.gen_operand(*arg);
-                            if let Some(param_reg) = self.reg_alloc.get_register(param) {
-                                self.codes.push(Bytecode::double(
-                                    Opcode::Mov,
-                                    param_reg.into(),
-                                    arg_op,
-                                ));
-                            } else if let Some(stack_offset) =
-                                self.reg_alloc.get_stack_offset(param)
-                            {
-                                self.codes.push(Bytecode::double(
-                                    Opcode::Mov,
-                                    Operand::Stack(stack_offset as isize),
-                                    arg_op,
-                                ));
-                            } else {
-                                let param_reg = self.reg_alloc.alloc(*param, self.inst_index).0;
-                                self.codes.push(Bytecode::double(
-                                    Opcode::Mov,
-                                    param_reg.into(),
-                                    arg_op,
-                                ));
-                            }
-                        }
+                        self.store_jump_args(&true_params, &true_args);
 
-                        // 为false分支参数生成mov指令
-                        let false_block_id = false_blk.to_block();
                         let false_params = cfg
-                            .get_block(false_block_id)
-                            .map(|b| b.params())
+                            .get_block(false_blk.to_block())
+                            .map(|b| b.params().to_vec())
                             .unwrap_or_default();
-                        for (param, arg) in false_params.iter().zip(false_args.iter()) {
-                            let arg_op = self.gen_operand(*arg);
-                            if let Some(param_reg) = self.reg_alloc.get_register(param) {
-                                self.codes.push(Bytecode::double(
-                                    Opcode::Mov,
-                                    param_reg.into(),
-                                    arg_op,
-                                ));
-                            } else if let Some(stack_offset) =
-                                self.reg_alloc.get_stack_offset(param)
-                            {
-                                self.codes.push(Bytecode::double(
-                                    Opcode::Mov,
-                                    Operand::Stack(stack_offset as isize),
-                                    arg_op,
-                                ));
-                            } else {
-                                let param_reg = self.reg_alloc.alloc(*param, self.inst_index).0;
-                                self.codes.push(Bytecode::double(
-                                    Opcode::Mov,
-                                    param_reg.into(),
-                                    arg_op,
-                                ));
-                            }
-                        }
+                        self.store_jump_args(&false_params, &false_args);
 
                         let condition = self.gen_operand(condition);
                         let true_blk = self.gen_operand(true_blk);
@@ -457,6 +390,10 @@ impl Codegen {
     }
 
     fn gen_call(&mut self, func: Value, args: &[Value], result: Value) {
+        // 先解析全部实参：解析时可能新占用寄存器，backup 必须在解析之后取，
+        // 否则这些寄存器的值会被被调函数覆盖。
+        let arg_ops = self.load_args(args);
+
         // 1. Backup used registers
         let in_use_registers = self.reg_alloc.in_use_registers();
         for reg in in_use_registers.iter().copied() {
@@ -464,7 +401,7 @@ impl Codegen {
         }
 
         // 2. Push arguments onto the stack
-        self.store_args(args, self.inst_index);
+        self.push_args(&arg_ops);
 
         // 3. Set up new stack frame
         self.codes.push(Bytecode::single(
@@ -516,6 +453,7 @@ impl Codegen {
 
     fn gen_call_ex(&mut self, func: Value, args: &[Value], result: Value) {
         let callable = self.gen_operand(func);
+        let arg_ops = self.load_args(args);
 
         // 1. Backup used registers
         let in_use_registers = self.reg_alloc.in_use_registers();
@@ -524,7 +462,7 @@ impl Codegen {
         }
 
         // 2. Push arguments onto the stack
-        self.store_args(args, self.inst_index);
+        self.push_args(&arg_ops);
 
         // 3. Set up new stack frame
         self.codes.push(Bytecode::single(
@@ -577,7 +515,7 @@ impl Codegen {
         let callable = self.gen_operand(func);
 
         // 1. Push arguments onto the stack
-        self.store_args(args, self.inst_index);
+        self.store_args(args);
 
         // 2. Set up new stack frame
         self.codes.push(Bytecode::single(
@@ -629,7 +567,7 @@ impl Codegen {
         let callable = self.gen_operand(object);
 
         // 1. Push arguments onto the stack
-        self.store_args(args, self.inst_index);
+        self.store_args(args);
 
         // 2. Set up new stack frame
         self.codes.push(Bytecode::single(
@@ -679,26 +617,67 @@ impl Codegen {
         ));
     }
 
-    fn store_args(&mut self, args: &[Value], index: usize) {
-        for arg in args.iter().rev() {
-            let op = self.gen_operand(*arg);
+    fn store_args(&mut self, args: &[Value]) {
+        let ops = self.load_args(args);
+        self.push_args(&ops);
+    }
+
+    /// 先解析全部实参操作数再统一 Push：解析期间的寄存器分配由 `locked`
+    /// 保护，调用备份也能覆盖到所有被占用的寄存器。
+    fn load_args(&mut self, args: &[Value]) -> Vec<Operand> {
+        args.iter()
+            .rev()
+            .map(|arg| self.gen_operand(*arg))
+            .collect()
+    }
+
+    fn push_args(&mut self, ops: &[Operand]) {
+        for &op in ops {
             self.codes.push(Bytecode::single(Opcode::Push, op));
-            if let Value::Variable(arg) = arg
-                && let Some(action) = self.reg_alloc.release(*arg, index)
-            {
-                match action {
-                    Action::Spill { stack, register } => {
-                        trace!("spilling({arg}) {register} -> [rbp+{stack}]");
-                        self.codes.push(Bytecode::double(
-                            Opcode::Mov,
-                            Operand::Stack(stack as isize),
-                            register.into(),
-                        ));
-                    }
-                    _ => unreachable!("action must be spill"),
+        }
+    }
+
+    /// 每条边把实参写进目标块参数的固定栈槽，并作废参数在寄存器里的旧副本。
+    /// phi 交接只经内存：一条边写寄存器、另一条边写栈槽会让块入口读到旧值。
+    fn store_jump_args(&mut self, params: &[Variable], args: &[Value]) {
+        for (param, arg) in params.iter().zip(args.iter()) {
+            let arg_op = self.gen_operand(*arg);
+            let slot = self.reg_alloc.stack_slot(*param);
+            self.codes.push(Bytecode::double(
+                Opcode::Mov,
+                Operand::Stack(slot as isize),
+                arg_op,
+            ));
+            self.reg_alloc.invalidate(*param);
+        }
+    }
+
+    /// 发射分配器给出的**全部**动作，顺序不能变：先 Spill 后 Restore。
+    fn emit_actions(&mut self, actions: &[Action]) {
+        for action in actions {
+            match *action {
+                Action::Restore { stack, register } => {
+                    trace!("restoring [rbp+{stack}] -> {register}");
+                    self.codes.push(Bytecode::double(
+                        Opcode::Mov,
+                        register.into(),
+                        Operand::Stack(stack as isize),
+                    ));
+                }
+                Action::Spill { register, stack } => {
+                    trace!("spilling {register} -> [rbp+{stack}]");
+                    self.codes.push(Bytecode::double(
+                        Opcode::Mov,
+                        Operand::Stack(stack as isize),
+                        register.into(),
+                    ));
                 }
             }
         }
+    }
+
+    fn begin_inst(&mut self) {
+        self.locked.clear();
     }
 
     fn gen_operand(&mut self, value: Value) -> Operand {
@@ -708,25 +687,13 @@ impl Codegen {
             Value::Function(id) => Operand::new_symbol(id.as_usize() as u32),
             Value::Block(id) => Operand::new_immd(id.as_usize() as isize),
             Value::Variable(var) => {
-                let (register, unspill) = self.reg_alloc.alloc(var, self.inst_index);
-                trace!("allocating {value} -> {register}, unspill = {unspill:?}");
-
-                if let Some(Action::Restore { stack, register }) = unspill {
-                    trace!("unspilling({value}) [rbp+{stack}] -> {register}");
-                    self.codes.push(Bytecode::double(
-                        Opcode::Mov,
-                        register.into(),
-                        Operand::Stack(stack as isize),
-                    ));
-                }
-
+                let (register, actions) = self.reg_alloc.alloc(var, &self.locked);
+                trace!("allocating {value} -> {register}, actions = {actions:?}");
+                self.emit_actions(&actions);
+                self.locked.push(register);
                 Operand::new_register(register)
             }
         }
-    }
-
-    fn emit_code(&mut self, code: Bytecode) {
-        self.codes.push(code);
     }
 
     pub fn debug_insts(&self) -> &BTreeMap<usize, Instruction> {

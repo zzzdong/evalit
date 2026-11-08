@@ -6,6 +6,12 @@ use std::{
 
 pub const MIN_REQUIRED_REGISTER: usize = 3;
 
+/// 编译产物。
+///
+/// 预留（本轮不实现，位置先钉住）：
+/// - 异常处理：`eh_regions` 侧表，用「区域身份 + 出口集合」描述受保护范围，
+///   与指令流分离；AOT 重定位时只需把表中 pc 换成 native offset。
+/// - AOT：`symtab` 与 `Jump`/`BrIf` 操作数目前都是字节码 pc，重定位入口放这里。
 #[derive(Debug, Clone)]
 pub struct Module {
     pub name: Option<String>,
@@ -45,7 +51,10 @@ impl fmt::Display for Module {
         }
 
         writeln!(f, "=== symtab ===")?;
-        for (function_id, &index) in &self.symtab {
+        // HashMap 迭代顺序随进程哈希种子变化，输出必须排序才能用于快照比较。
+        let mut symtab: Vec<_> = self.symtab.iter().collect();
+        symtab.sort_by_key(|(_, index)| **index);
+        for (function_id, &index) in symtab {
             writeln!(f, "{function_id}: {index}")?;
         }
 

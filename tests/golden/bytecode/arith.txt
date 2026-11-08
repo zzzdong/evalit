@@ -1,0 +1,22 @@
+=== constants ===
+=== symtab ===
+=== instructions ===
+0	: addc rsp, rsp, 5
+1	: mov r0, [rbp+0], 0
+2	: mulx r0, 2, 3
+3	: mov r1, [rbp+1], 0
+4	: addx r1, 1, r0
+5	: mov [rbp+0], r0, 0
+6	: mov r0, [rbp+2], 0
+7	: mov r0, r1, 0
+8	: mov r2, [rbp+3], 0
+9	: subx r2, r0, 4
+10	: mov [rbp+2], r0, 0
+11	: mov r0, [rbp+4], 0
+12	: mov r0, r2, 0
+13	: mov rv, r0, 0
+14	: ret 0, 0, 0
+15	: mov [rbp+4], r0, 0
+16	: mov [rbp+1], r1, 0
+17	: mov [rbp+3], r2, 0
+18	: halt 0, 0, 0

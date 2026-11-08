@@ -1,0 +1,39 @@
+=== constants ===
+=== symtab ===
+=== instructions ===
+0	: addc rsp, rsp, 8
+1	: mov r0, [rbp+0], 0
+2	: mov r0, 3, 0
+3	: mov r1, [rbp+7], 0
+4	: mov r1, 0, 0
+5	: mov [rbp+7], r1, 0
+6	: mov r1, [rbp+1], 0
+7	: gt r1, r0, 0
+8	: mov [rbp+0], r0, 0
+9	: mov [rbp+1], r1, 0
+10	: br_if r1, 1, 11
+11	: mov r0, [rbp+0], 0
+12	: mov r1, [rbp+3], 0
+13	: addx r1, r0, 1
+14	: mov [rbp+0], r0, 0
+15	: mov r0, [rbp+4], 0
+16	: mov r0, r1, 0
+17	: mov [rbp+4], r0, 0
+18	: mov [rbp+3], r1, 0
+19	: mov [rbp+2], r0, 0
+20	: br 11, 0, 0
+21	: mov r0, [rbp+0], 0
+22	: mov r1, [rbp+5], 0
+23	: subx r1, r0, 1
+24	: mov [rbp+0], r0, 0
+25	: mov r0, [rbp+6], 0
+26	: mov r0, r1, 0
+27	: mov [rbp+6], r0, 0
+28	: mov [rbp+5], r1, 0
+29	: mov [rbp+2], r0, 0
+30	: br 1, 0, 0
+31	: mov r0, [rbp+2], 0
+32	: mov rv, r0, 0
+33	: ret 0, 0, 0
+34	: mov [rbp+2], r0, 0
+35	: halt 0, 0, 0
